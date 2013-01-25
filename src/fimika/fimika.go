@@ -14,6 +14,10 @@ type Application struct {
 
 type Request struct {
 	*http.Request
+	Params		map[string][]string
+	Host		string
+	Path		string
+	Fragment	string
 }
 
 type Response struct {
@@ -22,8 +26,8 @@ type Response struct {
 
 type Context struct {
 	Method		string
-	Params		map[string]string
-	Form		map[string]string
+	Params		map[string][]string
+	Form		map[string][]string
 	Request 	*Request
 	Response	*Response
 	Context		*appengine.Context
@@ -79,7 +83,24 @@ func NamedRegexpGroup(str string, reg *regexp.Regexp) map[string]string {
 }
 
 func NewRequest(r *http.Request) *Request {
-	return &Request{r}
+	req := &Request{r, r.URL.Query(), r.URL.Host, r.URL.Path, r.URL.Fragment}
+	return req
+}
+
+func (r *Request) Get(key string) string {
+	vs, ok := r.Params[key]
+	if !ok || len(vs) <= 0 {
+		return ""
+	}
+	return vs[0]
+}
+
+func (r *Request) Gets(key string) []string {
+	vs, ok := r.Params[key]
+	if !ok {
+		return nil
+	}
+	return vs
 }
 
 func NewResponse(w http.ResponseWriter) *Response {
@@ -91,9 +112,12 @@ func NewContext(w http.ResponseWriter, r *http.Request, rd *RouteData) *Context 
 	res := NewResponse(w)
 	c := &Context{
 		Method: r.Method,
-		Params: rd.Params,
 		Request: req,
 		Response: res,
+		Params: req.Params,
+	}
+	for k, vs := range rd.Params {
+		c.Params[k] = []string{vs}
 	}
 	return c
 }
