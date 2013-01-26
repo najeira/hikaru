@@ -129,15 +129,15 @@ func (app *Application) handlePanic(c *Context) *Result {
 	if err == nil {
 		return nil
 	}
-	
+
 	var buf bytes.Buffer
 	buf.Write(debug.Stack())
 	stack := buf.String()
-	
+
 	err_msg := fmt.Sprintf("%v\n%s", err, stack)
-	
+
 	app.Logger.Errorln(err_msg)
-	
+
 	result := c.Error(err)
 	if app.Debug {
 		result.Body.WriteString(err_msg)
