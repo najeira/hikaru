@@ -88,19 +88,27 @@ func (app *Application) Start() {
 }
 
 func (app *Application) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	var handler Handler
+	rd := app.FindRoute(r)
+	c := NewContext(w, r, rd)
+	if rd == nil {
+		app.ErrorNotFound(c)
+	} else {
+		rd.Route.Handler(c)
+	}
+}
+
+func (app *Application) FindRoute(r *http.Request) *RouteData {
 	var rd *RouteData
 	for _, route := range app.Routes {
 		rd = route.Match(r.URL.Path)
 		if rd != nil {
-			handler = rd.Route.Handler
-			break
+			return rd
 		}
 	}
-	if handler != nil {
-		c := NewContext(w, r, rd)
-		handler(c)
-	}
+	return nil
+}
+
+func (app *Application) ErrorNotFound(c *Context) {
 }
 
 func (app *Application) AddRoute(pattern string, handler Handler) {
