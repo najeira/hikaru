@@ -61,7 +61,7 @@ type RouteData struct {
 	Params map[string]string
 }
 
-type Handler func(*Context)
+type Handler func(*Context) *Result
 
 var (
 	routeParam *regexp.Regexp = regexp.MustCompile("<[^>]+>")
@@ -103,16 +103,55 @@ func (app *Application) Start() {
 }
 
 func (app *Application) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	rd := app.FindRoute(r)
-	c := NewContext(app, w, r, rd)
-	if rd == nil {
+	c := NewContext(app, w, r)
+
+	//TODO: before routing middlewares
+
+	c.RouteData = app.matchRoute(r)
+
+	if c.RouteData == nil {
 		app.ErrorNotFound(c)
 	} else {
-		rd.Route.Handler(c)
+		app.executeContext(c)
+	}
+
+	app.executeResult(c)
+}
+
+func copyHeader(src, dst http.Header) {
+	if src != nil {
+		for k, vs := range src {
+			if len(vs) >= 2 {
+				for _, v := range vs {
+					if v != "" {
+						dst.Add(k, v)
+					}
+				}
+			} else {
+				v := vs[0]
+				if v != "" {
+					dst.Set(k, v)
+				}
+			}
+		}
 	}
 }
 
-func (app *Application) FindRoute(r *http.Request) *RouteData {
+func (app *Application) executeResult(c *Context) {
+	result := c.Result
+	
+	copyHeader(result.Header, c.ResponseWriter.Header())
+	
+	if result.StatusCode > 0 {
+		c.ResponseWriter.WriteHeader(result.StatusCode)
+	}
+	
+	if result.Body.Len() > 0 {
+		result.Body.WriteTo(c.ResponseWriter)
+	}
+}
+
+func (app *Application) matchRoute(r *http.Request) *RouteData {
 	var rd *RouteData
 	for _, route := range app.Routes {
 		rd = route.Match(r.URL.Path)
@@ -123,8 +162,22 @@ func (app *Application) FindRoute(r *http.Request) *RouteData {
 	return nil
 }
 
-func (app *Application) handlePanic(c *Context) *Result {
-	// handle all the error
+func (app *Application) executeContext(c *Context) {
+	defer func() {
+		err_result := app.recoverPanic(c)
+		if err_result != nil {
+			c.Result = err_result
+		}
+	}()
+
+	//TODO: before handler middlewares
+
+	c.Result = c.RouteData.Route.Handler(c)
+
+	//TODO: after handler middlewares
+}
+
+func (app *Application) recoverPanic(c *Context) *Result {
 	err := recover()
 	if err == nil {
 		return nil
@@ -209,7 +262,7 @@ func NewResult() *Result {
 	return result
 }
 
-func NewContext(app *Application, w http.ResponseWriter, r *http.Request, rd *RouteData) *Context {
+func NewContext(app *Application, w http.ResponseWriter, r *http.Request) *Context {
 	req := NewRequest(r)
 	ac := appengine.NewContext(r)
 	c := &Context{
@@ -217,7 +270,6 @@ func NewContext(app *Application, w http.ResponseWriter, r *http.Request, rd *Ro
 		Application:        app,
 		Request:            req,
 		AppEngineContext:   ac,
-		RouteData:          rd,
 		ResponseWriter:     w,
 		ResponseStatusCode: http.StatusOK,
 	}

@@ -1,7 +1,6 @@
 package hello
 
 import (
-	"fmt"
 	"fimika"
 )
 
@@ -15,7 +14,6 @@ func init() {
 	app.Start()
 }
 
-func handleIndex(c *fimika.Context) {
-	fmt.Fprintf(c.ResponseWriter, "あああ")
-	fmt.Fprintf(c.ResponseWriter, c.Get("foo"))
+func handleIndex(c *fimika.Context) *fimika.Result {
+	return c.Raw("あああ", "text/plain; charset=utf-8")
 }
