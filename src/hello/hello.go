@@ -16,6 +16,6 @@ func init() {
 }
 
 func handleIndex(c *fimika.Context) {
-	fmt.Fprintf(c.Response, "あああ")
-	fmt.Fprintf(c.Response, c.Request.Params["foo"][0])
+	fmt.Fprintf(c.Response.Writer, "あああ")
+	fmt.Fprintf(c.Response.Writer, c.Request.Params["foo"][0])
 }

@@ -15,13 +15,13 @@ type Application struct {
 type Request struct {
 	*http.Request
 	Params   map[string][]string
-	Host     string
 	Path     string
 	Fragment string
 }
 
 type Response struct {
-	http.ResponseWriter
+	Writer http.ResponseWriter
+	StatusCode int    // e.g. 200
 }
 
 type Context struct {
@@ -79,8 +79,7 @@ func NamedRegexpGroup(str string, reg *regexp.Regexp) map[string]string {
 }
 
 func NewApplication() *Application {
-	app := new(Application)
-	return app
+	return new(Application)
 }
 
 func (app *Application) Start() {
@@ -118,7 +117,7 @@ func (app *Application) AddRoute(pattern string, handler Handler) {
 }
 
 func NewRequest(r *http.Request) *Request {
-	req := &Request{r, r.URL.Query(), r.URL.Host, r.URL.Path, r.URL.Fragment}
+	req := &Request{r, r.URL.Query(), r.URL.Path, r.URL.Fragment}
 	return req
 }
 
@@ -139,7 +138,7 @@ func (r *Request) Gets(key string) []string {
 }
 
 func NewResponse(w http.ResponseWriter) *Response {
-	return &Response{w}
+	return &Response{w, http.StatusOK}
 }
 
 func NewContext(w http.ResponseWriter, r *http.Request, rd *RouteData) *Context {
