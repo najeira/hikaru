@@ -1,23 +1,23 @@
 package fimika
 
 import (
+	"appengine"
 	"fmt"
+	"net/http"
 	"regexp"
 	"strings"
-	"net/http"
-	"appengine"
 )
 
 type Application struct {
-	Routes		[]*Route
+	Routes []*Route
 }
 
 type Request struct {
 	*http.Request
-	Params		map[string][]string
-	Host		string
-	Path		string
-	Fragment	string
+	Params   map[string][]string
+	Host     string
+	Path     string
+	Fragment string
 }
 
 type Response struct {
@@ -25,37 +25,33 @@ type Response struct {
 }
 
 type Context struct {
-	Method		string
-	Params		map[string][]string
-	Form		map[string][]string
-	Request 	*Request
-	Response	*Response
-	Context		*appengine.Context
-	View		map[string]interface{}
+	Method           string
+	Params           map[string][]string
+	Form             map[string][]string
+	Request          *Request
+	Response         *Response
+	Application      *Application
+	AppEngineContext *appengine.Context
+	View             map[string]interface{}
 }
 
 type Route struct {
-	Pattern		string
-	Regexp		*regexp.Regexp
-	Handler		Handler
+	Pattern string
+	Regexp  *regexp.Regexp
+	Handler Handler
 }
 
 type RouteData struct {
-	Path		string
-	Route		*Route
-	Params		map[string]string
+	Path   string
+	Route  *Route
+	Params map[string]string
 }
 
-type Handler func(*Context) error
+type Handler func(*Context)
 
 var (
-	ApplicationInstance = new(Application)
 	routeParam *regexp.Regexp = regexp.MustCompile("<[^>]+>")
 )
-
-func init() {
-	http.HandleFunc("/", defaultHandler)
-}
 
 // match regexp with string, and return a named group map
 // Example:
@@ -74,12 +70,43 @@ func NamedRegexpGroup(str string, reg *regexp.Regexp) map[string]string {
 		if k == 0 || v == "" {
 			continue
 		}
-		if k + 1 > len_rst {
+		if k+1 > len_rst {
 			break
 		}
 		ng[v] = rst[k]
 	}
 	return ng
+}
+
+func NewApplication() *Application {
+	app := new(Application)
+	return app
+}
+
+func (app *Application) Start() {
+	http.Handle("/", app)
+}
+
+func (app *Application) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	var handler Handler
+	var rd *RouteData
+	for _, route := range app.Routes {
+		rd = route.Match(r.URL.Path)
+		if rd != nil {
+			handler = rd.Route.Handler
+			break
+		}
+	}
+	if handler != nil {
+		c := NewContext(w, r, rd)
+		handler(c)
+	}
+}
+
+func (app *Application) AddRoute(pattern string, handler Handler) {
+	route := NewRoute(pattern)
+	route.Handler = handler
+	app.Routes = append(app.Routes, route)
 }
 
 func NewRequest(r *http.Request) *Request {
@@ -111,10 +138,10 @@ func NewContext(w http.ResponseWriter, r *http.Request, rd *RouteData) *Context 
 	req := NewRequest(r)
 	res := NewResponse(w)
 	c := &Context{
-		Method: r.Method,
-		Request: req,
+		Method:   r.Method,
+		Request:  req,
 		Response: res,
-		Params: req.Params,
+		Params:   req.Params,
 	}
 	for k, vs := range rd.Params {
 		c.Params[k] = []string{vs}
@@ -133,8 +160,8 @@ func compilePattern(pattern string) *regexp.Regexp {
 	// /blog/<id:[0-9]+>    =>   /blog/(?P<id>[0-9]+)
 	ret := routeParam.ReplaceAllStringFunc(pattern, func(s string) string {
 		var name, reg string
-		body := s[1:len(s)-1]
-		if (strings.Contains(body, ":")) {
+		body := s[1 : len(s)-1]
+		if strings.Contains(body, ":") {
 			parts := strings.SplitN(body, ":", 2)
 			name, reg = parts[0], parts[1]
 		} else {
@@ -146,12 +173,6 @@ func compilePattern(pattern string) *regexp.Regexp {
 	return regexp.MustCompile("^" + ret + "$")
 }
 
-func AddRoute(pattern string, handler Handler) {
-	route := NewRoute(pattern)
-	route.Handler = handler
-	ApplicationInstance.Routes = append(ApplicationInstance.Routes, route)
-}
-
 func (r *Route) Match(path string) *RouteData {
 	params := NamedRegexpGroup(path, r.Regexp)
 	if params == nil {
@@ -159,20 +180,4 @@ func (r *Route) Match(path string) *RouteData {
 	}
 	rd := &RouteData{Path: path, Route: r, Params: params}
 	return rd
-}
-
-func defaultHandler(w http.ResponseWriter, r *http.Request) {
-	var handler Handler
-	var rd *RouteData
-	for _, route := range ApplicationInstance.Routes {
-		rd = route.Match(r.URL.Path)
-		if rd != nil {
-			handler = rd.Route.Handler
-			break
-		}
-	}
-	if handler != nil {
-		c := NewContext(w, r, rd)
-		handler(c)
-	}
 }
