@@ -46,7 +46,6 @@ type Context struct {
 	RouteData        *RouteData
 	Result           *Result
 	ResponseWriter   http.ResponseWriter
-	Log              *Logger
 }
 
 type Route struct {
@@ -186,7 +185,7 @@ func (app *Application) recoverPanic(c *Context) *Result {
 
 	err_msg := fmt.Sprintf("%v\n%s", err, stack)
 
-	c.Log.Errorf(err_msg)
+	c.LogErrorf(err_msg)
 
 	result := c.Error(err)
 	if app.Debug {
@@ -264,14 +263,12 @@ func NewResult() *Result {
 func NewContext(app *Application, w http.ResponseWriter, r *http.Request) *Context {
 	req := NewRequest(r)
 	ac := appengine.NewContext(r)
-	lg := NewLogger(app.LogLevel, ac)
 	c := &Context{
 		Method:           r.Method,
 		Application:      app,
 		Request:          req,
 		AppEngineContext: ac,
 		ResponseWriter:   w,
-		Log:              lg,
 	}
 	return c
 }

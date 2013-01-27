@@ -16,6 +16,6 @@ func init() {
 }
 
 func handleIndex(c *fimika.Context) *fimika.Result {
-	c.Log.Infof("こんにちは")
+	c.LogInfof("こんにちは")
 	return c.Text("あああ")
 }
