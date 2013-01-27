@@ -19,8 +19,6 @@ type Application struct {
 	StaticPath     string // static file dir, "static" if empty
 	ViewPath       string // view file dir, "views" if empty
 	HandlerTimeout time.Duration
-	Logger         *Logger
-	LogLevel       int
 	Debug          bool
 }
 
@@ -39,15 +37,15 @@ type Result struct {
 }
 
 type Context struct {
-	Method             string
-	Application        *Application
-	Request            *Request
-	AppEngineContext   appengine.Context
-	View               map[string]interface{}
-	RouteData          *RouteData
-	Result             *Result
-	ResponseWriter     http.ResponseWriter
-	ResponseStatusCode int // e.g. 200
+	Method           string
+	Application      *Application
+	Request          *Request
+	AppEngineContext appengine.Context
+	View             map[string]interface{}
+	RouteData        *RouteData
+	Result           *Result
+	ResponseWriter   http.ResponseWriter
+	Log              *Logger
 }
 
 type Route struct {
@@ -94,7 +92,6 @@ func NamedRegexpGroup(str string, reg *regexp.Regexp) map[string]string {
 
 func NewApplication() *Application {
 	app := new(Application)
-	app.Logger = NewLogger()
 	return app
 }
 
@@ -104,8 +101,6 @@ func (app *Application) Start() {
 
 func (app *Application) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	c := NewContext(app, w, r)
-
-	//TODO: before routing middlewares
 
 	c.RouteData = app.matchRoute(r)
 
@@ -139,13 +134,13 @@ func copyHeader(src, dst http.Header) {
 
 func (app *Application) executeResult(c *Context) {
 	result := c.Result
-	
+
 	copyHeader(result.Header, c.ResponseWriter.Header())
-	
+
 	if result.StatusCode > 0 {
 		c.ResponseWriter.WriteHeader(result.StatusCode)
 	}
-	
+
 	if result.Body.Len() > 0 {
 		result.Body.WriteTo(c.ResponseWriter)
 	}
@@ -189,7 +184,7 @@ func (app *Application) recoverPanic(c *Context) *Result {
 
 	err_msg := fmt.Sprintf("%v\n%s", err, stack)
 
-	app.Logger.Errorln(err_msg)
+	//app.Log.Errorln(err_msg)
 
 	result := c.Error(err)
 	if app.Debug {
@@ -265,13 +260,14 @@ func NewResult() *Result {
 func NewContext(app *Application, w http.ResponseWriter, r *http.Request) *Context {
 	req := NewRequest(r)
 	ac := appengine.NewContext(r)
+	lg := NewLogger(LogLevelInfo, ac)
 	c := &Context{
-		Method:             r.Method,
-		Application:        app,
-		Request:            req,
-		AppEngineContext:   ac,
-		ResponseWriter:     w,
-		ResponseStatusCode: http.StatusOK,
+		Method:           r.Method,
+		Application:      app,
+		Request:          req,
+		AppEngineContext: ac,
+		ResponseWriter:   w,
+		Log:              lg,
 	}
 	return c
 }
