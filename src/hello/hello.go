@@ -10,12 +10,12 @@ var (
 
 func init() {
 	app.Debug = true
-	app.AddRoute("/", handleIndex)
-	app.AddRoute("/<foo>/<bar>", handleIndex)
+	app.Route("/", handleIndex)
+	app.Route("/<foo>/<bar>", handleIndex)
 	app.Start()
 }
 
 func handleIndex(c *fimika.Context) *fimika.Result {
 	c.Log.Infof("こんにちは")
-	return c.Raw("あああ", "text/plain; charset=utf-8")
+	return c.Text("あああ")
 }

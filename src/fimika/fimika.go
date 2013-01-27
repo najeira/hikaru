@@ -20,6 +20,7 @@ type Application struct {
 	ViewPath       string // view file dir, "views" if empty
 	HandlerTimeout time.Duration
 	Debug          bool
+	LogLevel       int
 }
 
 type Request struct {
@@ -92,6 +93,7 @@ func NamedRegexpGroup(str string, reg *regexp.Regexp) map[string]string {
 
 func NewApplication() *Application {
 	app := new(Application)
+	app.LogLevel = LogLevelInfo
 	return app
 }
 
@@ -184,7 +186,7 @@ func (app *Application) recoverPanic(c *Context) *Result {
 
 	err_msg := fmt.Sprintf("%v\n%s", err, stack)
 
-	//app.Log.Errorln(err_msg)
+	c.Log.Errorf(err_msg)
 
 	result := c.Error(err)
 	if app.Debug {
@@ -196,7 +198,7 @@ func (app *Application) recoverPanic(c *Context) *Result {
 func (app *Application) ErrorNotFound(c *Context) {
 }
 
-func (app *Application) AddRoute(pattern string, handler Handler) {
+func (app *Application) Route(pattern string, handler Handler) {
 	route := NewRoute(pattern)
 	route.Handler = handler
 	app.Routes = append(app.Routes, route)
@@ -238,7 +240,7 @@ func (r *Request) Has(key string) bool {
 	return ok
 }
 
-func (r *Request) Get(key string) string {
+func (r *Request) Val(key string) string {
 	vs, ok := r.Params[key]
 	if !ok || len(vs) <= 0 {
 		return ""
@@ -246,21 +248,23 @@ func (r *Request) Get(key string) string {
 	return vs[0]
 }
 
-func (r *Request) Gets(key string) []string {
+func (r *Request) Vals(key string) []string {
 	vs, _ := r.Params[key]
 	return vs
 }
 
+// Creates and returns a new Result.
 func NewResult() *Result {
 	result := new(Result)
 	result.Header = make(http.Header)
 	return result
 }
 
+// Creates and returns a new Context.
 func NewContext(app *Application, w http.ResponseWriter, r *http.Request) *Context {
 	req := NewRequest(r)
 	ac := appengine.NewContext(r)
-	lg := NewLogger(LogLevelInfo, ac)
+	lg := NewLogger(app.LogLevel, ac)
 	c := &Context{
 		Method:           r.Method,
 		Application:      app,
@@ -272,6 +276,8 @@ func NewContext(app *Application, w http.ResponseWriter, r *http.Request) *Conte
 	return c
 }
 
+// Returns whether the request has the given key
+// in route values and query.
 func (c *Context) Has(key string) bool {
 	_, ok := c.RouteData.Params[key]
 	if ok {
@@ -280,22 +286,32 @@ func (c *Context) Has(key string) bool {
 	return c.Request.Has(key)
 }
 
-func (c *Context) Get(key string) string {
+// Returns the first value associated with the given key
+// from route values and query.
+// If there are no values associated with the key, returns "".
+// To access multiple values of a key, use Vals.
+func (c *Context) Val(key string) string {
 	v, ok := c.RouteData.Params[key]
 	if ok {
 		return v
 	}
-	return c.Request.Get(key)
+	return c.Request.Val(key)
 }
 
-func (c *Context) Gets(key string) []string {
+// Returns the list of values associated with the given key
+// from route values and query.
+// If there are no values associated with the key, returns empty slice.
+func (c *Context) Vals(key string) []string {
 	v, ok := c.RouteData.Params[key]
 	if ok {
 		return []string{v}
 	}
-	return c.Request.Gets(key)
+	return c.Request.Vals(key)
 }
 
+// Returns the first value associated with the given key from form.
+// If there are no values associated with the key, returns "".
+// To access multiple values of a key, use Forms.
 func (c *Context) Form(key string) string {
 	vs, ok := c.Request.Form[key]
 	if !ok || len(vs) <= 0 {
@@ -304,11 +320,14 @@ func (c *Context) Form(key string) string {
 	return vs[0]
 }
 
+// Returns the list of values associated with the given key from form.
+// If there are no values associated with the key, returns empty slice.
 func (c *Context) Forms(key string) []string {
 	vs, _ := c.Request.Form[key]
 	return vs
 }
 
+// Creates and returns a new Result with raw string and content type.
 func (c *Context) Raw(body string, content_type string) *Result {
 	result := NewResult()
 	result.StatusCode = http.StatusOK
@@ -319,23 +338,33 @@ func (c *Context) Raw(body string, content_type string) *Result {
 	return result
 }
 
-func (c *Context) Redirect(path string) *Result {
-	return c.RedirectCode(path, http.StatusFound)
+// Creates and returns a new Result with text string.
+// The content type should be "text/plain; charset=utf-8".
+func (c *Context) Text(body string) *Result {
+	return c.Raw(body, "text/plain; charset=utf-8")
 }
 
+// Creates and returns a new Result with HTTP 302 Found.
+func (c *Context) Redirect(path string) *Result {
+	return c.redirectCode(path, http.StatusFound)
+}
+
+// Creates and returns a new Result with HTTP 302 Found.
 func (c *Context) RedirectFound(path string) *Result {
 	return c.Redirect(path)
 }
 
-func (c *Context) RedirectPermanent(path string) *Result {
-	return c.RedirectCode(path, http.StatusMovedPermanently)
-}
-
+// Creates and returns a new Result with HTTP 301 Moved Permanently.
 func (c *Context) Redirect301(path string) *Result {
-	return c.RedirectPermanent(path)
+	return c.redirectCode(path, http.StatusMovedPermanently)
 }
 
-func (c *Context) RedirectCode(path string, code int) *Result {
+// Creates and returns a new Result with HTTP 301 Moved Permanently.
+func (c *Context) RedirectPermanently(path string) *Result {
+	return c.Redirect301(path)
+}
+
+func (c *Context) redirectCode(path string, code int) *Result {
 	result := NewResult()
 	result.StatusCode = code
 	result.Header.Set("Location", path)
@@ -346,16 +375,20 @@ func (c *Context) doRedirect(result *Result) {
 	http.Redirect(c.ResponseWriter, c.Request.Request, result.Header.Get("Location"), result.StatusCode)
 }
 
+// Creates and returns a new Result with HTTP 404 Not Found.
 func (c *Context) NotFound() *Result {
 	return c.Abort(http.StatusNotFound)
 }
 
+// Creates and returns a new Result with the given code.
 func (c *Context) Abort(code int) *Result {
 	result := NewResult()
 	result.StatusCode = code
 	return result
 }
 
+// Creates and returns a new Result with the given error
+// and HTTP 500 Internal Server Error.
 func (c *Context) Error(err interface{}) *Result {
 	result := NewResult()
 	result.StatusCode = http.StatusInternalServerError
@@ -363,12 +396,10 @@ func (c *Context) Error(err interface{}) *Result {
 	return result
 }
 
-func (c *Context) SetHeader(key string, val string) {
-	c.ResponseWriter.Header().Set(key, val)
+func (r *Result) SetHeader(key string, val string) {
 }
 
-func (c *Context) SetCookie(cookie *http.Cookie) {
-	http.SetCookie(c.ResponseWriter, cookie)
+func (r *Result) SetCookie(cookie *http.Cookie) {
 }
 
 func (c *Context) Render(template string) {
