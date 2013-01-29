@@ -17,7 +17,7 @@ Getting started
 	}
 	
 	func handleIndex(c *hikaru.Context) hikaru.Result {
-		return c.Text("Hello Fimika!")
+		return c.Text("Hello Hikaru!")
 	}
 
 

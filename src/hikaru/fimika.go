@@ -1,4 +1,4 @@
-package fimika
+package hikaru
 
 import (
 	"appengine"
