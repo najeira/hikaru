@@ -1,4 +1,4 @@
-package fimika
+package hikaru
 /*
 
 Getting started
@@ -7,16 +7,16 @@ Getting started
 ::
 	package hello
 	
-	import "fimika"
+	import "hikaru"
 	
-	var app = fimika.NewApplication()
+	var app = hikaru.NewApplication()
 	
 	func init() {
 		app.Route("/", handleIndex)
 		app.Start()
 	}
 	
-	func handleIndex(c *fimika.Context) *fimika.Result {
+	func handleIndex(c *hikaru.Context) hikaru.Result {
 		return c.Text("Hello Fimika!")
 	}
 
