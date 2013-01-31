@@ -1,9 +1,10 @@
 package hikaru
 
 import (
+	"bytes"
 	"html/template"
-	"io"
 	"path"
+	"strings"
 )
 
 type Renderer interface {
@@ -17,26 +18,26 @@ type HikaruRenderer struct {
 }
 
 func NewRenderer(dir string, ext string) *HikaruRenderer {
-	r := &HikaruRenderer{dir: dir, ext, ext}
-	r.templates = make(map[string]*html.Template)
+	r := &HikaruRenderer{dir: dir, ext: ext}
+	r.templates = make(map[string]*template.Template)
 	return r
 }
 
 func (r *HikaruRenderer) getFullname(name string) string {
 	name = path.Clean(name)
 	if r.ext != "" {
-		if r.ext[0] != "." {
+		if !strings.HasPrefix(r.ext, ".") {
 			name += "."
 		}
 		name += r.ext
 	}
-	return path.Join(r.dir, name)
+	return path.Clean(path.Join("./", r.dir, name))
 }
 
 func (r *HikaruRenderer) New(name string) *template.Template {
 	fullname := r.getFullname(name)
-	tpl, err := template.ParseFile(fullname)
-	if err != nil || tpl == nil {
+	tpl, err := template.ParseFiles(fullname)
+	if err != nil {
 		panic(err)
 	}
 	return tpl
@@ -56,9 +57,9 @@ func (r *HikaruRenderer) Render(name string, data interface{}) string {
 
 func (r *HikaruRenderer) RendererTemplate(tpl *template.Template, data interface{}) string {
 	var buf bytes.Buffer
-	err := tpl.Render(buf, data) // FIXME
+	err := tpl.Execute(&buf, data)
 	if err != nil {
 		panic(err)
 	}
-	return buf.String()
+	return string(buf.Bytes())
 }

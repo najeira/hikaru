@@ -33,8 +33,8 @@ func NewRoute(pattern string, handler Handler) *Route {
 	return r
 }
 
-func (r *Route) Match(r *http.Request) *RouteData {
-	return r.MatchPath(r.URL.Path)
+func (r *Route) Match(req *http.Request) *RouteData {
+	return r.MatchPath(req.URL.Path)
 }
 
 func (r *Route) MatchURL(url *url.URL) *RouteData {

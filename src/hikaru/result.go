@@ -25,11 +25,11 @@ func NewResult() *HikaruResult {
 	return result
 }
 
-func (r *HikaruResult) StatusCode() {
+func (r *HikaruResult) StatusCode() int {
 	return r.statusCode
 }
 
-func (r *HikaruResult) Header() {
+func (r *HikaruResult) Header() http.Header {
 	return r.header
 }
 
@@ -47,15 +47,11 @@ func (r *HikaruResult) Execute(c *Context) {
 	}
 }
 
-func (r *HikaruResult) SetHeader(key string, val string) {
-}
-
 func (r *HikaruResult) SetCookie(cookie *http.Cookie) {
 }
 
 func (r *HikaruResult) redirect(c *Context) {
-	http.Redirect(c.ResponseWriter, c.Request.Request,
-		result.header.Get("Location"), result.statusCode)
+	http.Redirect(c.ResponseWriter, c.HttpRequest, r.header.Get("Location"), r.statusCode)
 }
 
 func copyHttpHeader(src, dst http.Header) {

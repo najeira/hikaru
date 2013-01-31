@@ -2,26 +2,23 @@ package hikaru
 
 import (
 	"appengine"
+	"appengine_internal"
 	"bytes"
+	"code.google.com/p/goprotobuf/proto"
 	"fmt"
 	"net/http"
-	"net/http/pprof"
-	"regexp"
 	"runtime/debug"
-	"strings"
-	"sync"
 	"time"
 )
 
 type Context struct {
 	Method           string
 	Application      *Application
-	Request          *http.Request
+	HttpRequest      *http.Request
 	AppEngineContext appengine.Context
-	View             map[string]interface{}
+	ResponseWriter   http.ResponseWriter
 	RouteData        *RouteData
 	Result           Result
-	ResponseWriter   http.ResponseWriter
 }
 
 // Creates and returns a new Context.
@@ -30,11 +27,23 @@ func NewContext(app *Application, w http.ResponseWriter, r *http.Request) *Conte
 	c := &Context{
 		Method:           r.Method,
 		Application:      app,
-		Request:          req,
+		HttpRequest:      r,
 		AppEngineContext: ac,
 		ResponseWriter:   w,
 	}
 	return c
+}
+
+func (c *Context) Call(service, method string, in, out proto.Message, opts *appengine_internal.CallOptions) error {
+	return c.AppEngineContext.Call(service, method, in, out, opts)
+}
+
+func (c *Context) FullyQualifiedAppID() string {
+	return c.AppEngineContext.FullyQualifiedAppID()
+}
+
+func (c *Context) Request() interface{} {
+	return c.AppEngineContext.Request()
 }
 
 // Returns whether the request has the given key
@@ -44,7 +53,8 @@ func (c *Context) Has(key string) bool {
 	if ok {
 		return true
 	}
-	return c.Request.Has(key)
+	_, ok = c.HttpRequest.URL.Query()[key]
+	return ok
 }
 
 // Returns the first value associated with the given key
@@ -56,7 +66,11 @@ func (c *Context) Val(key string) string {
 	if ok {
 		return v
 	}
-	return c.Request.Val(key)
+	vs, ok2 := c.HttpRequest.URL.Query()[key]
+	if ok2 && len(vs) >= 1 {
+		return vs[0]
+	}
+	return ""
 }
 
 // Returns the list of values associated with the given key
@@ -67,14 +81,21 @@ func (c *Context) Vals(key string) []string {
 	if ok {
 		return []string{v}
 	}
-	return c.Request.Vals(key)
+	vs, ok2 := c.HttpRequest.URL.Query()[key]
+	if ok2 {
+		return vs
+	}
+	return []string{}
 }
 
 // Returns the first value associated with the given key from form.
 // If there are no values associated with the key, returns "".
 // To access multiple values of a key, use Forms.
 func (c *Context) Form(key string) string {
-	vs, ok := c.Request.Form[key]
+	if c.HttpRequest.Form == nil {
+		c.HttpRequest.ParseForm()
+	}
+	vs, ok := c.HttpRequest.Form[key]
 	if !ok || len(vs) <= 0 {
 		return ""
 	}
@@ -84,7 +105,10 @@ func (c *Context) Form(key string) string {
 // Returns the list of values associated with the given key from form.
 // If there are no values associated with the key, returns empty slice.
 func (c *Context) Forms(key string) []string {
-	vs, _ := c.Request.Form[key]
+	if c.HttpRequest.Form == nil {
+		c.HttpRequest.ParseForm()
+	}
+	vs, _ := c.HttpRequest.Form[key]
 	return vs
 }
 
@@ -134,11 +158,11 @@ func (c *Context) redirectCode(path string, code int) Result {
 
 // Creates and returns a new Result with HTTP 404 Not Found.
 func (c *Context) NotFound() Result {
-	return c.Abort(http.StatusNotFound)
+	return c.AbortCode(http.StatusNotFound)
 }
 
 // Creates and returns a new Result with the given code.
-func (c *Context) Abort(code int) Result {
+func (c *Context) AbortCode(code int) Result {
 	result := NewResult()
 	result.statusCode = code
 	return result
@@ -146,14 +170,11 @@ func (c *Context) Abort(code int) Result {
 
 // Creates and returns a new Result with the given error
 // and HTTP 500 Internal Server Error.
-func (c *Context) Error(err interface{}) Result {
+func (c *Context) Abort(err interface{}) Result {
 	result := NewResult()
 	result.statusCode = http.StatusInternalServerError
 	result.err = err
 	return result
-}
-
-func (c *Context) Render(template string) {
 }
 
 func (c *Context) Html(name string, data interface{}) Result {
@@ -173,6 +194,54 @@ func (c *Context) Html(name string, data interface{}) Result {
 	return result
 }
 
+func (c *Context) executeRoute() bool {
+	c.RouteData = c.matchRoute()
+	return c.RouteData != nil
+}
+
+func (c *Context) matchRoute() *RouteData {
+	var rd *RouteData
+	for _, route := range c.Application.Routes {
+		rd = route.Match(c.HttpRequest)
+		if rd != nil {
+			return rd
+		}
+	}
+	return nil
+}
+
+func (c *Context) executeNotFound() {
+	c.Result = c.NotFound()
+}
+
+func (c *Context) executeContext() {
+	//TODO: before handler middlewares
+	c.executeHandler()
+	//TODO: after handler middlewares
+}
+
+func (c *Context) executeRecover() {
+	if err := recover(); err != nil {
+		c.Errorln(err)
+		c.Result = c.resultPanic(err)
+	}
+}
+
+func (c *Context) resultPanic(err interface{}) Result {
+	var buf bytes.Buffer
+	buf.Write(debug.Stack())
+	stack := buf.String()
+	err_msg := fmt.Sprintf("%v\n%s", err, stack)
+	c.Errorf(err_msg)
+	result := NewResult()
+	result.statusCode = http.StatusInternalServerError
+	result.err = err
+	if c.Application.Debug {
+		result.body.WriteString(err_msg)
+	}
+	return result
+}
+
 func (c *Context) executeHandler() {
 	rd := c.RouteData
 	r := rd.Route
@@ -186,17 +255,22 @@ func (c *Context) executeHandler() {
 
 	done := make(chan bool)
 	go func() {
-		c.Result = r.Handler(c)
+		c.executeHandlerWithRecover()
 		done <- true
 	}()
 
 	select {
 	case <-done:
-		break
+		// succeeded
 	case <-to:
-		c.Result = c.ErrorTimeout()
-		break
+		// timeouted
+		c.Result = c.AbortCode(500)
 	}
+}
+
+func (c *Context) executeHandlerWithRecover() {
+	defer c.executeRecover()
+	c.Result = c.RouteData.Route.Handler(c)
 }
 
 func (c *Context) executeResult() {

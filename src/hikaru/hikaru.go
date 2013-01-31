@@ -1,34 +1,27 @@
 package hikaru
 
 import (
-	"appengine"
-	"bytes"
-	"fmt"
 	"net/http"
 	"net/http/pprof"
-	"regexp"
-	"runtime/debug"
-	"strings"
 	"sync"
 	"time"
 )
 
 type Application struct {
 	Routes         []*Route
-	RootDir        string // project root dir
-	StaticDir      string // static file dir, "static" if empty
-	TemplateDir    string // template file dir, "templates" if empty
-	TemplateExt    string // template file ext, "html" if empty
+	StaticDir      string // static file dir, default is "static"
+	TemplateDir    string // template file dir, default is "templates"
+	TemplateExt    string // template file ext, default is "html"
 	HandlerTimeout time.Duration
 	Debug          bool
 	LogLevel       int
 	Renderer       Renderer
-	mutex          sync.RWMutex
+	Mutex          sync.RWMutex
 }
 
 func NewApplication() *Application {
 	app := new(Application)
-	app.Routes = make([]*Route)
+	app.Routes = make([]*Route, 0)
 	app.StaticDir = "static"
 	app.TemplateDir = "templates"
 	app.TemplateExt = "html"
@@ -43,75 +36,29 @@ func (app *Application) Start() {
 }
 
 func (app *Application) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	c := NewContext(app, w, r)
-
-	c.RouteData = app.matchRoute(r)
-
-	if c.RouteData == nil {
-		c.Result = c.NotFound()
-	} else {
-		app.executeContext(c)
+	done := app.handlePprof(w, r)
+	if done {
+		return
 	}
-
+	c := NewContext(app, w, r)
+	ok := c.executeRoute()
+	if ok {
+		c.executeContext()
+	} else {
+		c.executeNotFound()
+	}
 	c.executeResult()
 }
 
-func (app *Application) matchRoute(r *http.Request) *RouteData {
-	var rd *RouteData
-	for _, route := range app.Routes {
-		rd = route.Match(r)
-		if rd != nil {
-			return rd
-		}
-	}
-	return nil
-}
-
-func (app *Application) executeContext(c *Context) {
-	defer func() {
-		err_result := app.recoverPanic(c)
-		if err_result != nil {
-			c.Result = err_result
-		}
-	}()
-
-	//TODO: before handler middlewares
-
-	c.executeHandler()
-
-	//TODO: after handler middlewares
-}
-
-func (app *Application) recoverPanic(c *Context) Resulter {
-	err := recover()
-	if err == nil {
-		return nil
-	}
-
-	var buf bytes.Buffer
-	buf.Write(debug.Stack())
-	stack := buf.String()
-
-	err_msg := fmt.Sprintf("%v\n%s", err, stack)
-
-	c.LogErrorf(err_msg)
-
-	result := c.Error(err)
-	if app.Debug {
-		result.Body.WriteString(err_msg)
-	}
-	return result
-}
-
 func (app *Application) SetRenderer(r Renderer) {
-	app.mutex.Lock()
-	defer app.mutex.Unlock()
+	app.Mutex.Lock()
+	defer app.Mutex.Unlock()
 	app.Renderer = r
 }
 
 func (app *Application) InitRenderer() {
-	app.mutex.Lock()
-	defer app.mutex.Unlock()
+	app.Mutex.Lock()
+	defer app.Mutex.Unlock()
 	if app.Renderer == nil {
 		app.Renderer = NewRenderer(app.TemplateDir, app.TemplateExt)
 	}
@@ -119,22 +66,24 @@ func (app *Application) InitRenderer() {
 
 func (app *Application) Route(pattern string, handler Handler) {
 	route := NewRoute(pattern, handler)
-	app.Routes = append(app.Routes, route)
+	app.appendRoute(route)
 }
 
 func (app *Application) RouteTimeout(pattern string, handler Handler, timeout time.Duration) {
 	route := NewRoute(pattern, handler)
 	route.Timeout = timeout
+	app.appendRoute(route)
+}
+
+func (app *Application) appendRoute(route *Route) {
 	app.Routes = append(app.Routes, route)
 }
 
-func (app *Application) handlePprof(c *Context) bool {
-	w := c.ResponseWriter
-	r := c.Request
+func (app *Application) handlePprof(w http.ResponseWriter, r *http.Request) bool {
 	if !app.Debug {
 		return false
 	}
-	switch r.RequestURI {
+	switch r.URL.Path {
 	case "/debug/pprof/cmdline":
 		pprof.Cmdline(w, r)
 		return true
