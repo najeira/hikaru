@@ -25,7 +25,7 @@ var levelFuncMap = map[int]logPrinter{
 }
 
 func (c *HikaruContext) logPrintf(level int, format string, args ...interface{}) {
-	if c.Application.LogLevel >= level {
+	if c.Application().LogLevel >= level {
 		f, ok := levelFuncMap[level]
 		if ok && f != nil {
 			f(c.AppEngineContext(), format, args...)

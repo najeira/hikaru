@@ -27,7 +27,7 @@ type RouteData struct {
 	Params map[string]string
 }
 
-type Handler func(*Context) Result
+type Handler func(Context) Result
 
 var (
 	routeParamRegexp *regexp.Regexp = regexp.MustCompile("<[^>]+>")

@@ -184,11 +184,11 @@ func (c *HikaruContext) Forms(key string) []string {
 }
 
 func (c *HikaruContext) IsMethodPost() bool {
-	return strings.ToUpper(c.Method) == "POST"
+	return strings.ToUpper(c.Method()) == "POST"
 }
 
 func (c *HikaruContext) IsMethodGet() bool {
-	return strings.ToUpper(c.Method) == "GET"
+	return strings.ToUpper(c.Method()) == "GET"
 }
 
 // Creates and returns a new Result with raw string and content type.
