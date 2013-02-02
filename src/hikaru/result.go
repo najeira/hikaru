@@ -8,7 +8,7 @@ import (
 type Result interface {
 	StatusCode() int
 	Header() http.Header
-	Execute(*Context)
+	Execute(Context)
 }
 
 type HikaruResult struct {
@@ -33,16 +33,16 @@ func (r *HikaruResult) Header() http.Header {
 	return r.header
 }
 
-func (r *HikaruResult) Execute(c *Context) {
-	copyHttpHeader(r.header, c.ResponseWriter.Header())
+func (r *HikaruResult) Execute(c Context) {
+	copyHttpHeader(r.header, c.ResponseWriter().Header())
 	if r.header.Get("Location") != "" {
 		r.redirect(c)
 	} else {
 		if r.statusCode > 0 {
-			c.ResponseWriter.WriteHeader(r.statusCode)
+			c.ResponseWriter().WriteHeader(r.statusCode)
 		}
 		if r.body.Len() > 0 {
-			r.body.WriteTo(c.ResponseWriter)
+			r.body.WriteTo(c.ResponseWriter())
 		}
 	}
 }
@@ -50,8 +50,8 @@ func (r *HikaruResult) Execute(c *Context) {
 func (r *HikaruResult) SetCookie(cookie *http.Cookie) {
 }
 
-func (r *HikaruResult) redirect(c *Context) {
-	http.Redirect(c.ResponseWriter, c.HttpRequest, r.header.Get("Location"), r.statusCode)
+func (r *HikaruResult) redirect(c Context) {
+	http.Redirect(c.ResponseWriter(), c.HttpRequest(), r.header.Get("Location"), r.statusCode)
 }
 
 func copyHttpHeader(src, dst http.Header) {

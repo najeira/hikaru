@@ -8,7 +8,7 @@ import (
 )
 
 type Application struct {
-	Routes         []*Route
+	Routes         []Route
 	StaticDir      string // static file dir, default is "static"
 	TemplateDir    string // template file dir, default is "templates"
 	TemplateExt    string // template file ext, default is "html"
@@ -21,17 +21,20 @@ type Application struct {
 
 func NewApplication() *Application {
 	app := new(Application)
-	app.Routes = make([]*Route, 0)
-	app.StaticDir = "static"
-	app.TemplateDir = "templates"
-	app.TemplateExt = "html"
-	app.Debug = false
-	app.LogLevel = LogLevelInfo
+	app.initApplication()
 	return app
 }
 
+func (app *Application) initApplication() {
+	app.Routes = make([]Route, 0)
+	app.StaticDir = "static"
+	app.TemplateDir = "templates"
+	app.TemplateExt = "html"
+	app.LogLevel = LogLevelInfo
+}
+
 func (app *Application) Start() {
-	app.InitRenderer()
+	app.initRenderer()
 	http.Handle("/", app)
 }
 
@@ -41,13 +44,7 @@ func (app *Application) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	c := NewContext(app, w, r)
-	ok := c.executeRoute()
-	if ok {
-		c.executeContext()
-	} else {
-		c.executeNotFound()
-	}
-	c.executeResult()
+	c.Execute()
 }
 
 func (app *Application) SetRenderer(r Renderer) {
@@ -56,7 +53,7 @@ func (app *Application) SetRenderer(r Renderer) {
 	app.Renderer = r
 }
 
-func (app *Application) InitRenderer() {
+func (app *Application) initRenderer() {
 	app.Mutex.Lock()
 	defer app.Mutex.Unlock()
 	if app.Renderer == nil {
@@ -64,18 +61,20 @@ func (app *Application) InitRenderer() {
 	}
 }
 
-func (app *Application) Route(pattern string, handler Handler) {
+func (app *Application) RouteFunc(pattern string, handler Handler) {
 	route := NewRoute(pattern, handler)
-	app.appendRoute(route)
+	app.Route(route)
 }
 
-func (app *Application) RouteTimeout(pattern string, handler Handler, timeout time.Duration) {
+func (app *Application) RouteFuncTimeout(pattern string, handler Handler, timeout time.Duration) {
 	route := NewRoute(pattern, handler)
-	route.Timeout = timeout
-	app.appendRoute(route)
+	route.timeout = timeout
+	app.Route(route)
 }
 
-func (app *Application) appendRoute(route *Route) {
+func (app *Application) Route(route Route) {
+	app.Mutex.Lock()
+	defer app.Mutex.Unlock()
 	app.Routes = append(app.Routes, route)
 }
 

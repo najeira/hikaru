@@ -26,11 +26,11 @@ Route
 -----
 
 ::
-	app.Route("/", handleIndex)
+	app.RouteFunc("/", handleIndex)
 
 You can use named parameter:
 ::
-	app.Route("/blog/<id>", handleBlog)
+	app.RouteFunc("/blog/<id>", handleBlog)
 
 That route will match e.g. "/blog/123" and "/blog/hello".
 
@@ -40,6 +40,9 @@ And Context.Val has "id" value:
 	id := c.Val("id")
 
 The id will be "123" when "/blog/123", "hello" when "/blog/hello".
+
+You can use your original route that implements hikaru.Route.
+	app.Route(route)
 
 
 Result

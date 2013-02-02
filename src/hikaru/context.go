@@ -8,52 +8,123 @@ import (
 	"fmt"
 	"net/http"
 	"runtime/debug"
+	"strings"
 	"time"
 )
 
-type Context struct {
-	Method           string
-	Application      *Application
-	HttpRequest      *http.Request
-	AppEngineContext appengine.Context
-	ResponseWriter   http.ResponseWriter
-	RouteData        *RouteData
-	Result           Result
+type Context interface {
+	appengine.Context
+	AppEngineContext() appengine.Context
+	Method() string
+	Application() *Application
+	HttpRequest() *http.Request
+	ResponseWriter() http.ResponseWriter
+	RouteData() *RouteData
+	Result() Result
+	SetResult(Result)
+	Execute()
+	Has(key string) bool
+	Val(key string) string
+	Vals(key string) []string
+	Form(key string) string
+	Forms(key string) []string
+	IsMethodPost() bool
+	IsMethodGet() bool
+	Raw(body []byte, content_type string) Result
+	Text(body string) Result
+	Redirect(path string) Result
+	RedirectFound(path string) Result
+	Redirect301(path string) Result
+	RedirectPermanently(path string) Result
+	NotFound() Result
+	AbortCode(code int) Result
+	Abort(err interface{}) Result
+	Html(name string, data interface{}) Result
+}
+
+type HikaruContext struct {
+	application      *Application
+	httpRequest      *http.Request
+	appEngineContext appengine.Context
+	responseWriter   http.ResponseWriter
+	routeData        *RouteData
+	result           Result
 }
 
 // Creates and returns a new Context.
-func NewContext(app *Application, w http.ResponseWriter, r *http.Request) *Context {
+func NewContext(app *Application, w http.ResponseWriter, r *http.Request) *HikaruContext {
 	ac := appengine.NewContext(r)
-	c := &Context{
-		Method:           r.Method,
-		Application:      app,
-		HttpRequest:      r,
-		AppEngineContext: ac,
-		ResponseWriter:   w,
+	c := &HikaruContext{
+		application:      app,
+		httpRequest:      r,
+		appEngineContext: ac,
+		responseWriter:   w,
 	}
 	return c
 }
 
-func (c *Context) Call(service, method string, in, out proto.Message, opts *appengine_internal.CallOptions) error {
-	return c.AppEngineContext.Call(service, method, in, out, opts)
+func (c *HikaruContext) Call(service, method string, in, out proto.Message, opts *appengine_internal.CallOptions) error {
+	return c.AppEngineContext().Call(service, method, in, out, opts)
 }
 
-func (c *Context) FullyQualifiedAppID() string {
-	return c.AppEngineContext.FullyQualifiedAppID()
+func (c *HikaruContext) FullyQualifiedAppID() string {
+	return c.AppEngineContext().FullyQualifiedAppID()
 }
 
-func (c *Context) Request() interface{} {
-	return c.AppEngineContext.Request()
+func (c *HikaruContext) Request() interface{} {
+	return c.AppEngineContext().Request()
+}
+
+func (c *HikaruContext) AppEngineContext() appengine.Context {
+	return c.appEngineContext
+}
+
+func (c *HikaruContext) Method() string {
+	return c.httpRequest.Method
+}
+
+func (c *HikaruContext) Application() *Application {
+	return c.application
+}
+
+func (c *HikaruContext) HttpRequest() *http.Request {
+	return c.httpRequest
+}
+
+func (c *HikaruContext) ResponseWriter() http.ResponseWriter {
+	return c.responseWriter
+}
+
+func (c *HikaruContext) RouteData() *RouteData {
+	return c.routeData
+}
+
+func (c *HikaruContext) Result() Result {
+	return c.result
+}
+
+func (c *HikaruContext) SetResult(result Result) {
+	c.result = result
+}
+
+func (c *HikaruContext) Execute() {
+	ok := c.executeRoute()
+	if ok {
+		c.executeContext()
+	} else {
+		c.executeNotFound()
+	}
+	c.executeResult()
 }
 
 // Returns whether the request has the given key
 // in route values and query.
-func (c *Context) Has(key string) bool {
-	_, ok := c.RouteData.Params[key]
+func (c *HikaruContext) Has(key string) bool {
+	_, ok := c.routeData.Params[key]
 	if ok {
 		return true
 	}
-	_, ok = c.HttpRequest.URL.Query()[key]
+	_, ok = c.httpRequest.URL.Query()[key]
 	return ok
 }
 
@@ -61,12 +132,12 @@ func (c *Context) Has(key string) bool {
 // from route values and query.
 // If there are no values associated with the key, returns "".
 // To access multiple values of a key, use Vals.
-func (c *Context) Val(key string) string {
-	v, ok := c.RouteData.Params[key]
+func (c *HikaruContext) Val(key string) string {
+	v, ok := c.routeData.Params[key]
 	if ok {
 		return v
 	}
-	vs, ok2 := c.HttpRequest.URL.Query()[key]
+	vs, ok2 := c.httpRequest.URL.Query()[key]
 	if ok2 && len(vs) >= 1 {
 		return vs[0]
 	}
@@ -76,12 +147,12 @@ func (c *Context) Val(key string) string {
 // Returns the list of values associated with the given key
 // from route values and query.
 // If there are no values associated with the key, returns empty slice.
-func (c *Context) Vals(key string) []string {
-	v, ok := c.RouteData.Params[key]
+func (c *HikaruContext) Vals(key string) []string {
+	v, ok := c.routeData.Params[key]
 	if ok {
 		return []string{v}
 	}
-	vs, ok2 := c.HttpRequest.URL.Query()[key]
+	vs, ok2 := c.httpRequest.URL.Query()[key]
 	if ok2 {
 		return vs
 	}
@@ -91,11 +162,11 @@ func (c *Context) Vals(key string) []string {
 // Returns the first value associated with the given key from form.
 // If there are no values associated with the key, returns "".
 // To access multiple values of a key, use Forms.
-func (c *Context) Form(key string) string {
-	if c.HttpRequest.Form == nil {
-		c.HttpRequest.ParseForm()
+func (c *HikaruContext) Form(key string) string {
+	if c.httpRequest.Form == nil {
+		c.httpRequest.ParseForm()
 	}
-	vs, ok := c.HttpRequest.Form[key]
+	vs, ok := c.httpRequest.Form[key]
 	if !ok || len(vs) <= 0 {
 		return ""
 	}
@@ -104,19 +175,27 @@ func (c *Context) Form(key string) string {
 
 // Returns the list of values associated with the given key from form.
 // If there are no values associated with the key, returns empty slice.
-func (c *Context) Forms(key string) []string {
-	if c.HttpRequest.Form == nil {
-		c.HttpRequest.ParseForm()
+func (c *HikaruContext) Forms(key string) []string {
+	if c.httpRequest.Form == nil {
+		c.httpRequest.ParseForm()
 	}
-	vs, _ := c.HttpRequest.Form[key]
+	vs, _ := c.httpRequest.Form[key]
 	return vs
 }
 
+func (c *HikaruContext) IsMethodPost() bool {
+	return strings.ToUpper(c.Method) == "POST"
+}
+
+func (c *HikaruContext) IsMethodGet() bool {
+	return strings.ToUpper(c.Method) == "GET"
+}
+
 // Creates and returns a new Result with raw string and content type.
-func (c *Context) Raw(body string, content_type string) Result {
+func (c *HikaruContext) Raw(body []byte, content_type string) Result {
 	result := NewResult()
 	result.statusCode = http.StatusOK
-	result.body.WriteString(body)
+	result.body.Write(body)
 	if content_type != "" {
 		result.header.Set("Content-Type", content_type)
 	}
@@ -125,31 +204,31 @@ func (c *Context) Raw(body string, content_type string) Result {
 
 // Creates and returns a new Result with text string.
 // The content type should be "text/plain; charset=utf-8".
-func (c *Context) Text(body string) Result {
-	return c.Raw(body, "text/plain; charset=utf-8")
+func (c *HikaruContext) Text(body string) Result {
+	return c.Raw([]byte(body), "text/plain; charset=utf-8")
 }
 
 // Creates and returns a new Result with HTTP 302 Found.
-func (c *Context) Redirect(path string) Result {
+func (c *HikaruContext) Redirect(path string) Result {
 	return c.redirectCode(path, http.StatusFound)
 }
 
 // Creates and returns a new Result with HTTP 302 Found.
-func (c *Context) RedirectFound(path string) Result {
+func (c *HikaruContext) RedirectFound(path string) Result {
 	return c.Redirect(path)
 }
 
 // Creates and returns a new Result with HTTP 301 Moved Permanently.
-func (c *Context) Redirect301(path string) Result {
+func (c *HikaruContext) Redirect301(path string) Result {
 	return c.redirectCode(path, http.StatusMovedPermanently)
 }
 
 // Creates and returns a new Result with HTTP 301 Moved Permanently.
-func (c *Context) RedirectPermanently(path string) Result {
+func (c *HikaruContext) RedirectPermanently(path string) Result {
 	return c.Redirect301(path)
 }
 
-func (c *Context) redirectCode(path string, code int) Result {
+func (c *HikaruContext) redirectCode(path string, code int) Result {
 	result := NewResult()
 	result.statusCode = code
 	result.header.Set("Location", path)
@@ -157,12 +236,12 @@ func (c *Context) redirectCode(path string, code int) Result {
 }
 
 // Creates and returns a new Result with HTTP 404 Not Found.
-func (c *Context) NotFound() Result {
+func (c *HikaruContext) NotFound() Result {
 	return c.AbortCode(http.StatusNotFound)
 }
 
 // Creates and returns a new Result with the given code.
-func (c *Context) AbortCode(code int) Result {
+func (c *HikaruContext) AbortCode(code int) Result {
 	result := NewResult()
 	result.statusCode = code
 	return result
@@ -170,19 +249,17 @@ func (c *Context) AbortCode(code int) Result {
 
 // Creates and returns a new Result with the given error
 // and HTTP 500 Internal Server Error.
-func (c *Context) Abort(err interface{}) Result {
+func (c *HikaruContext) Abort(err interface{}) Result {
 	result := NewResult()
 	result.statusCode = http.StatusInternalServerError
 	result.err = err
 	return result
 }
 
-func (c *Context) Html(name string, data interface{}) Result {
-	app := c.Application
-
+func (c *HikaruContext) Html(name string, data interface{}) Result {
 	// TODO: middlewares
 
-	text := app.Renderer.Render(name, data)
+	text := c.application.Renderer.Render(name, data)
 
 	result := NewResult()
 	result.statusCode = http.StatusOK
@@ -194,15 +271,17 @@ func (c *Context) Html(name string, data interface{}) Result {
 	return result
 }
 
-func (c *Context) executeRoute() bool {
-	c.RouteData = c.matchRoute()
-	return c.RouteData != nil
+func (c *HikaruContext) executeRoute() bool {
+	c.routeData = c.matchRoute()
+	return c.routeData != nil
 }
 
-func (c *Context) matchRoute() *RouteData {
+func (c *HikaruContext) matchRoute() *RouteData {
+	c.application.Mutex.RLock()
+	defer c.application.Mutex.RUnlock()
 	var rd *RouteData
-	for _, route := range c.Application.Routes {
-		rd = route.Match(c.HttpRequest)
+	for _, route := range c.application.Routes {
+		rd = route.Match(c.httpRequest)
 		if rd != nil {
 			return rd
 		}
@@ -210,24 +289,24 @@ func (c *Context) matchRoute() *RouteData {
 	return nil
 }
 
-func (c *Context) executeNotFound() {
-	c.Result = c.NotFound()
+func (c *HikaruContext) executeNotFound() {
+	c.result = c.NotFound()
 }
 
-func (c *Context) executeContext() {
+func (c *HikaruContext) executeContext() {
 	//TODO: before handler middlewares
 	c.executeHandler()
 	//TODO: after handler middlewares
 }
 
-func (c *Context) executeRecover() {
+func (c *HikaruContext) executeRecover() {
 	if err := recover(); err != nil {
 		c.Errorln(err)
-		c.Result = c.resultPanic(err)
+		c.result = c.resultPanic(err)
 	}
 }
 
-func (c *Context) resultPanic(err interface{}) Result {
+func (c *HikaruContext) resultPanic(err interface{}) Result {
 	var buf bytes.Buffer
 	buf.Write(debug.Stack())
 	stack := buf.String()
@@ -236,21 +315,21 @@ func (c *Context) resultPanic(err interface{}) Result {
 	result := NewResult()
 	result.statusCode = http.StatusInternalServerError
 	result.err = err
-	if c.Application.Debug {
+	if c.application.Debug {
 		result.body.WriteString(err_msg)
 	}
 	return result
 }
 
-func (c *Context) executeHandler() {
-	rd := c.RouteData
+func (c *HikaruContext) executeHandler() {
+	rd := c.routeData
 	r := rd.Route
 
 	var to <-chan time.Time
-	if r.Timeout <= 0 {
+	if r.Timeout() <= 0 {
 		to = make(<-chan time.Time) // no timeout
 	} else {
-		to = time.After(r.Timeout)
+		to = time.After(r.Timeout())
 	}
 
 	done := make(chan bool)
@@ -264,15 +343,15 @@ func (c *Context) executeHandler() {
 		// succeeded
 	case <-to:
 		// timeouted
-		c.Result = c.AbortCode(500)
+		c.result = c.AbortCode(500)
 	}
 }
 
-func (c *Context) executeHandlerWithRecover() {
+func (c *HikaruContext) executeHandlerWithRecover() {
 	defer c.executeRecover()
-	c.Result = c.RouteData.Route.Handler(c)
+	c.result = c.routeData.Route.Handler()(c)
 }
 
-func (c *Context) executeResult() {
-	c.Result.Execute(c)
+func (c *HikaruContext) executeResult() {
+	c.result.Execute(c)
 }

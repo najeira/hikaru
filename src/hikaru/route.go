@@ -9,15 +9,21 @@ import (
 	"time"
 )
 
-type Route struct {
+type Route interface {
+	Match(*http.Request) *RouteData
+	Handler() Handler
+	Timeout() time.Duration
+}
+
+type HikaruRoute struct {
 	Pattern string
 	Regexp  *regexp.Regexp
-	Handler Handler
-	Timeout time.Duration
+	handler Handler
+	timeout time.Duration
 }
 
 type RouteData struct {
-	Route  *Route
+	Route  Route
 	Params map[string]string
 }
 
@@ -27,21 +33,29 @@ var (
 	routeParamRegexp *regexp.Regexp = regexp.MustCompile("<[^>]+>")
 )
 
-func NewRoute(pattern string, handler Handler) *Route {
-	r := &Route{Pattern: pattern, Handler: handler}
+func NewRoute(pattern string, handler Handler) *HikaruRoute {
+	r := &HikaruRoute{Pattern: pattern, handler: handler}
 	r.Regexp = compileRoutePattern(r.Pattern)
 	return r
 }
 
-func (r *Route) Match(req *http.Request) *RouteData {
+func (r *HikaruRoute) Handler() Handler {
+	return r.handler
+}
+
+func (r *HikaruRoute) Timeout() time.Duration {
+	return r.timeout
+}
+
+func (r *HikaruRoute) Match(req *http.Request) *RouteData {
 	return r.MatchPath(req.URL.Path)
 }
 
-func (r *Route) MatchURL(url *url.URL) *RouteData {
+func (r *HikaruRoute) MatchURL(url *url.URL) *RouteData {
 	return r.MatchPath(url.Path)
 }
 
-func (r *Route) MatchPath(path string) *RouteData {
+func (r *HikaruRoute) MatchPath(path string) *RouteData {
 	params := NamedRegexpGroup(path, r.Regexp)
 	if params == nil {
 		return nil
