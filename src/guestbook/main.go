@@ -16,12 +16,12 @@ var app = hikaru.NewApplication()
 
 func init() {
 	app.Debug = true
-	app.Route("/", handleIndex)
-	app.Route("/sign", handleSign)
+	app.RouteFunc("/", handleIndex)
+	app.RouteFunc("/sign", handleSign)
 	app.Start()
 }
 
-func handleIndex(c *hikaru.Context) hikaru.Result {
+func handleIndex(c hikaru.Context) hikaru.Result {
 	q := datastore.NewQuery("Greeting").Order("-Date").Limit(10)
 	greetings := make([]Greeting, 0, 10)
 	if _, err := q.GetAll(c, &greetings); err != nil {
@@ -30,7 +30,7 @@ func handleIndex(c *hikaru.Context) hikaru.Result {
 	return c.Html("index", greetings)
 }
 
-func handleSign(c *hikaru.Context) hikaru.Result {
+func handleSign(c hikaru.Context) hikaru.Result {
 	g := Greeting{
 		Content: c.Form("content"),
 		Date:    time.Now(),
