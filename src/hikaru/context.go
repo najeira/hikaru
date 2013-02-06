@@ -120,11 +120,13 @@ func (c *HikaruContext) Execute() {
 // Returns whether the request has the given key
 // in route values and query.
 func (c *HikaruContext) Has(key string) bool {
-	_, ok := c.routeData.Params[key]
-	if ok {
-		return true
+	if c.routeData != nil {
+		_, ok := c.routeData.Params[key]
+		if ok {
+			return true
+		}
 	}
-	_, ok = c.httpRequest.URL.Query()[key]
+	_, ok := c.httpRequest.URL.Query()[key]
 	return ok
 }
 
@@ -133,9 +135,11 @@ func (c *HikaruContext) Has(key string) bool {
 // If there are no values associated with the key, returns "".
 // To access multiple values of a key, use Vals.
 func (c *HikaruContext) Val(key string) string {
-	v, ok := c.routeData.Params[key]
-	if ok {
-		return v
+	if c.routeData != nil {
+		v, ok := c.routeData.Params[key]
+		if ok {
+			return v
+		}
 	}
 	vs, ok2 := c.httpRequest.URL.Query()[key]
 	if ok2 && len(vs) >= 1 {
@@ -148,9 +152,11 @@ func (c *HikaruContext) Val(key string) string {
 // from route values and query.
 // If there are no values associated with the key, returns empty slice.
 func (c *HikaruContext) Vals(key string) []string {
-	v, ok := c.routeData.Params[key]
-	if ok {
-		return []string{v}
+	if c.routeData != nil {
+		v, ok := c.routeData.Params[key]
+		if ok {
+			return []string{v}
+		}
 	}
 	vs, ok2 := c.httpRequest.URL.Query()[key]
 	if ok2 {
@@ -272,21 +278,8 @@ func (c *HikaruContext) Html(name string, data interface{}) Result {
 }
 
 func (c *HikaruContext) executeRoute() bool {
-	c.routeData = c.matchRoute()
+	c.routeData = c.application.Match(c.httpRequest)
 	return c.routeData != nil
-}
-
-func (c *HikaruContext) matchRoute() *RouteData {
-	c.application.Mutex.RLock()
-	defer c.application.Mutex.RUnlock()
-	var rd *RouteData
-	for _, route := range c.application.Routes {
-		rd = route.Match(c.httpRequest)
-		if rd != nil {
-			return rd
-		}
-	}
-	return nil
 }
 
 func (c *HikaruContext) executeNotFound() {

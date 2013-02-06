@@ -78,6 +78,19 @@ func (app *Application) Route(route Route) {
 	app.Routes = append(app.Routes, route)
 }
 
+func (app *Application) Match(r *http.Request) *RouteData {
+	app.Mutex.RLock()
+	defer app.Mutex.RUnlock()
+	var rd *RouteData
+	for _, route := range app.Routes {
+		rd = route.Match(r)
+		if rd != nil {
+			return rd
+		}
+	}
+	return nil
+}
+
 func (app *Application) handlePprof(w http.ResponseWriter, r *http.Request) bool {
 	if !app.Debug {
 		return false
