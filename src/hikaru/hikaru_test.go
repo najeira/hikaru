@@ -2,30 +2,32 @@ package hikaru
 
 import (
 	"testing"
+	//"fmt"
 	"bytes"
 	"net/http"
-	_ "./testbed"
+	"appengine/datastore"
+	"github.com/najeira/testbed"
 )
 
 func TestApplication(t *testing.T) {
 	app := NewApplication()
 	if app == nil {
-		t.Errorf("NewApplication returns nil")
+		t.Errorf("NewApplication should return not nil")
 	}
 	if app.Routes == nil {
-		t.Errorf("Application.Routes is nil")
+		t.Errorf("Application.Routes should not be nil")
 	}
 	if app.StaticDir != "static" {
-		t.Errorf("Application.StaticDir is not static")
+		t.Errorf("Application.StaticDir should be static")
 	}
 	if app.TemplateDir != "templates" {
-		t.Errorf("Application.TemplateDir is not templates")
+		t.Errorf("Application.TemplateDir should be templates")
 	}
 	if app.TemplateExt != "html" {
-		t.Errorf("Application.TemplateExt is not html")
+		t.Errorf("Application.TemplateExt should be html")
 	}
 	if app.LogLevel != LogLevelInfo {
-		t.Errorf("Application.LogLevel is not LogLevelInfo")
+		t.Errorf("Application.LogLevel should be LogLevelInfo")
 	}
 }
 
@@ -40,19 +42,19 @@ func TestApplicationRoute(t *testing.T) {
 	r, _ = http.NewRequest("GET", "http://example.com/", nil)
 	rd = app.Match(r)
 	if rd == nil {
-		t.Errorf("/ does not match /")
+		t.Errorf("/ should match /")
 	}
 	if rd.Params == nil {
-		t.Errorf("/ return wrong RouteData")
+		t.Errorf("RouteData.Params should not be nil")
 	}
 	if len(rd.Params) != 0 {
-		t.Errorf("/ return wrong RouteData")
+		t.Errorf("RouteData.Params should be empty")
 	}
 	if rd.Route.Handler() == nil {
-		t.Errorf("/ matches wrong Route")
+		t.Errorf("RouteData.Handler() should not be nil")
 	}
 	if rd.Route.Timeout() != 0 {
-		t.Errorf("/ matches wrong Route")
+		t.Errorf("Route.Timeout() should be 0")
 	}
 	
 	r, _ = http.NewRequest("GET", "http://example.com/dummy", nil)
@@ -68,16 +70,16 @@ func TestApplicationRoute(t *testing.T) {
 		t.Errorf("/test does not match /test")
 	}
 	if rd.Params == nil {
-		t.Errorf("/test return wrong RouteData")
+		t.Errorf("RouteData.Params should not be nil")
 	}
 	if len(rd.Params) != 0 {
-		t.Errorf("/test return wrong RouteData")
+		t.Errorf("RouteData.Params should be empty")
 	}
 	if rd.Route.Handler() == nil {
-		t.Errorf("/test matches wrong Route")
+		t.Errorf("RouteData.Handler() should not be nil")
 	}
 	if rd.Route.Timeout() != 0 {
-		t.Errorf("/test matches wrong Route")
+		t.Errorf("Route.Timeout() should be 0")
 	}
 	
 	app.RouteFunc("/test/<foo>", f)
@@ -87,19 +89,19 @@ func TestApplicationRoute(t *testing.T) {
 		t.Errorf("/test/bar does not match /test/bar")
 	}
 	if rd.Params == nil {
-		t.Errorf("/test/bar return wrong RouteData")
+		t.Errorf("RouteData.Params should not be nil")
 	}
 	if len(rd.Params) != 1 {
-		t.Errorf("/test/bar return wrong RouteData")
+		t.Errorf("RouteData.Params should have one param")
 	}
 	if rd.Params["foo"] != "bar" {
-		t.Errorf("/test/bar return wrong RouteData")
+		t.Errorf("RouteData.Params[`foo`] should be `bar`: %s", rd.Params["foo"])
 	}
 	if rd.Route.Handler() == nil {
-		t.Errorf("/test/bar matches wrong Route")
+		t.Errorf("RouteData.Handler() should not be nil")
 	}
 	if rd.Route.Timeout() != 0 {
-		t.Errorf("/test/bar matches wrong Route")
+		t.Errorf("Route.Timeout() should be 0")
 	}
 	
 	app.RouteFunc("/hoge/<id:[0-9]+>", f)
@@ -115,19 +117,19 @@ func TestApplicationRoute(t *testing.T) {
 		t.Errorf("/hoge/579 does not match /hoge/<id:[0-9]+>")
 	}
 	if rd.Params == nil {
-		t.Errorf("/hoge/579 return wrong RouteData")
+		t.Errorf("RouteData.Params should not be nil")
 	}
 	if len(rd.Params) != 1 {
-		t.Errorf("/hoge/579 return wrong RouteData")
+		t.Errorf("RouteData.Params should have one param")
 	}
 	if rd.Params["id"] != "579" {
-		t.Errorf("/hoge/579 return wrong RouteData: %s", rd.Params["id"])
+		t.Errorf("RouteData.Params[`id`] should be `579`: %s", rd.Params["id"])
 	}
 	if rd.Route.Handler() == nil {
-		t.Errorf("/hoge/579 matches wrong Route")
+		t.Errorf("RouteData.Handler() should not be nil")
 	}
 	if rd.Route.Timeout() != 0 {
-		t.Errorf("/hoge/579 matches wrong Route")
+		t.Errorf("Route.Timeout() should be 0")
 	}
 }
 
@@ -170,7 +172,7 @@ func TestContext(t *testing.T) {
 		t.Errorf("NewContext returns nil")
 	}
 	if c.Application() != app {
-		t.Errorf("Context.Application() returns nil")
+		t.Errorf("Context.Application() returns wrong value")
 	}
 	if c.AppEngineContext() == nil {
 		t.Errorf("Context.AppEngineContext() returns nil")
@@ -263,13 +265,48 @@ func TestContextResult(t *testing.T) {
 	f := func(c Context) Result { return nil }
 	app.RouteFunc("/", f)
 	
-	var w http.ResponseWriter
 	var r *http.Request
 	var c *HikaruContext
 	
-	w = NewResponseTester()
+	w := NewResponseTester()
 	r, _ = http.NewRequest("GET", "http://example.com/", nil)
 	c = NewContext(app, w, r)
 	
-	res := r.Raw("", "text/plain")
+	res := c.Raw([]byte("This is a test value"), "text/plain")
+	if res == nil {
+		t.Errorf("Context.Raw(...) returns nil")
+	}
+	if res.StatusCode() != http.StatusOK {
+		t.Errorf("Result.StatusCode() should be http.StatusOK")
+	}
+	if ct := res.Header().Get("Content-Type"); ct != "text/plain" {
+		t.Errorf("Result.Header()['Content-Type] should be text/plain: %s", ct)
+	}
+	res.Execute(c)
+	
+	body := w.body.String()
+	if body != "This is a test value" {
+		t.Errorf("Result should be This is a test value")
+	}
+}
+
+func TestTestbed(t *testing.T) {
+	testbed.Start(`C:\Python\27\python.exe`, `C:\Program Files (x86)\Google\google_appengine`)
+	defer testbed.Close()
+	
+	r, _ := http.NewRequest("GET", "http://example.com/", nil)
+	c := testbed.NewContext(r)
+	
+	testbed.SetUp()
+	
+	low, high, err := datastore.AllocateIDs(c, "Test", nil, 10)
+	if err != nil {
+		t.Errorf("datastore.AllocateIDs returns error: %v", err)
+	}
+	if high - low != 10 {
+		t.Errorf("datastore.AllocateIDs returns wrong values: %d, %d", low, high)
+	}
+	
+	// teardown
+	testbed.TearDowm()
 }
