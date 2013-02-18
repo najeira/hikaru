@@ -12,7 +12,6 @@ type Application struct {
 	StaticDir      string // static file dir, default is "static"
 	TemplateDir    string // template file dir, default is "templates"
 	TemplateExt    string // template file ext, default is "html"
-	HandlerTimeout time.Duration
 	Debug          bool
 	LogLevel       int
 	Renderer       Renderer
@@ -26,7 +25,6 @@ func NewApplication() *Application {
 }
 
 func (app *Application) initApplication() {
-	app.Routes = make([]Route, 0)
 	app.StaticDir = "static"
 	app.TemplateDir = "templates"
 	app.TemplateExt = "html"
