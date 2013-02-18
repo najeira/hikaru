@@ -4,7 +4,6 @@ import (
 	"appengine"
 	"appengine_internal"
 	"bytes"
-	"code.google.com/p/goprotobuf/proto"
 	"fmt"
 	"net/http"
 	"runtime/debug"
@@ -63,7 +62,7 @@ func NewContext(app *Application, w http.ResponseWriter, r *http.Request) *Hikar
 	return c
 }
 
-func (c *HikaruContext) Call(service, method string, in, out proto.Message, opts *appengine_internal.CallOptions) error {
+func (c *HikaruContext) Call(service, method string, in, out appengine_internal.ProtoMessage, opts *appengine_internal.CallOptions) error {
 	return c.AppEngineContext().Call(service, method, in, out, opts)
 }
 
