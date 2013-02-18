@@ -45,10 +45,9 @@ func handleSign(c hikaru.Context) hikaru.Result {
 	//}
 	
 	key_ch, err_ch := db.PutAsync(c, key, &g)
-	var err error
-	select {
-	case <-key_ch:
-	case err = <-err_ch:
+	_ = <- key_ch
+	err := <- err_ch
+	if err != nil {
 		return c.Abort(err)
 	}
 	return c.Redirect("/")
