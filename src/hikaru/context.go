@@ -78,18 +78,22 @@ func (c *HikaruContext) AppEngineContext() appengine.Context {
 	return c.appEngineContext
 }
 
+// Returns the request method.
 func (c *HikaruContext) Method() string {
 	return c.httpRequest.Method
 }
 
+// Returns the application.
 func (c *HikaruContext) Application() *Application {
 	return c.application
 }
 
+// Returns the *http.Request.
 func (c *HikaruContext) HttpRequest() *http.Request {
 	return c.httpRequest
 }
 
+// Returns the ResponseWriter.
 func (c *HikaruContext) ResponseWriter() http.ResponseWriter {
 	return c.responseWriter
 }
@@ -188,10 +192,12 @@ func (c *HikaruContext) Forms(key string) []string {
 	return vs
 }
 
+// Returns whether the request method is POST or not.
 func (c *HikaruContext) IsMethodPost() bool {
 	return strings.ToUpper(c.Method()) == "POST"
 }
 
+// Returns whether the request method is GET or not.
 func (c *HikaruContext) IsMethodGet() bool {
 	return strings.ToUpper(c.Method()) == "GET"
 }
@@ -261,6 +267,8 @@ func (c *HikaruContext) Abort(err interface{}) Result {
 	return result
 }
 
+// Renders html template and returns a new Result with the
+// rendered html content.
 func (c *HikaruContext) Html(name string, data interface{}) Result {
 	// TODO: middlewares
 
