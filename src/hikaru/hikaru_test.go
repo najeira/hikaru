@@ -2,11 +2,16 @@ package hikaru
 
 import (
 	"testing"
-	//"fmt"
 	"bytes"
 	"net/http"
-	"appengine/datastore"
-	"github.com/najeira/testbed"
+	"strings"
+	"errors"
+)
+
+const (
+	PYTHON    = `C:\Python\27\python.exe`
+	TESTBED   = `C:\software\google_appengine_go\goroot\src\pkg\github.com\najeira\testbed\testbed.py`
+	APPENGINE = `C:\software\google_appengine_go`
 )
 
 func TestApplication(t *testing.T) {
@@ -14,8 +19,8 @@ func TestApplication(t *testing.T) {
 	if app == nil {
 		t.Errorf("NewApplication should return not nil")
 	}
-	if app.Routes == nil {
-		t.Errorf("Application.Routes should not be nil")
+	if app.Routes != nil {
+		t.Errorf("Application.Routes should be nil")
 	}
 	if app.StaticDir != "static" {
 		t.Errorf("Application.StaticDir should be static")
@@ -29,9 +34,30 @@ func TestApplication(t *testing.T) {
 	if app.LogLevel != LogLevelInfo {
 		t.Errorf("Application.LogLevel should be LogLevelInfo")
 	}
+	if app.Debug != false {
+		t.Errorf("Application.Debug should be false")
+	}
+	if app.Renderer != nil {
+		t.Errorf("Application.Renderer should be nil")
+	}
 }
 
-func TestApplicationRoute(t *testing.T) {
+type RendererTester struct {}
+
+func (r *RendererTester) Render(string, interface{}) string {
+	return ""
+}
+
+func TestApplicationSetRenderer(t *testing.T) {
+	app := NewApplication()
+	r := new(RendererTester)
+	app.SetRenderer(r)
+	if app.Renderer != r {
+		t.Errorf("Application.SetRenderer failed")
+	}
+}
+
+func TestApplicationRouteFunc(t *testing.T) {
 	app := NewApplication()
 	f := func(c Context) Result { return nil }
 	
@@ -171,20 +197,20 @@ func TestContext(t *testing.T) {
 	if c == nil {
 		t.Errorf("NewContext returns nil")
 	}
-	if c.Application() != app {
-		t.Errorf("Context.Application() returns wrong value")
-	}
 	if c.AppEngineContext() == nil {
 		t.Errorf("Context.AppEngineContext() returns nil")
+	}
+	if c.Method() != "GET" {
+		t.Errorf("Context.Method() returns not GET")
+	}
+	if c.Application() != app {
+		t.Errorf("Context.Application() returns wrong value")
 	}
 	if c.HttpRequest() != r {
 		t.Errorf("Context.HttpRequest() returns wrong value")
 	}
 	if c.ResponseWriter() != w {
 		t.Errorf("Context.ResponseWriter() returns wrong value")
-	}
-	if c.Method() != "GET" {
-		t.Errorf("Context.Method() returns not GET")
 	}
 	if c.RouteData() != nil {
 		t.Errorf("Context.RouteData() returns not nil value")
@@ -260,27 +286,24 @@ func TestContextRoute(t *testing.T) {
 	}
 }
 
-func TestContextResult(t *testing.T) {
+func TestContextResultRaw(t *testing.T) {
 	app := NewApplication()
 	f := func(c Context) Result { return nil }
 	app.RouteFunc("/", f)
 	
-	var r *http.Request
-	var c *HikaruContext
-	
 	w := NewResponseTester()
-	r, _ = http.NewRequest("GET", "http://example.com/", nil)
-	c = NewContext(app, w, r)
+	r, _ := http.NewRequest("GET", "http://example.com/", nil)
+	c := NewContext(app, w, r)
 	
 	res := c.Raw([]byte("This is a test value"), "text/plain")
 	if res == nil {
-		t.Errorf("Context.Raw(...) returns nil")
+		t.Errorf("Context.Raw() returns nil")
 	}
 	if res.StatusCode() != http.StatusOK {
 		t.Errorf("Result.StatusCode() should be http.StatusOK")
 	}
 	if ct := res.Header().Get("Content-Type"); ct != "text/plain" {
-		t.Errorf("Result.Header()['Content-Type] should be text/plain: %s", ct)
+		t.Errorf("Result.Header()[Content-Type] should be text/plain: %s", ct)
 	}
 	res.Execute(c)
 	
@@ -290,23 +313,160 @@ func TestContextResult(t *testing.T) {
 	}
 }
 
-func TestTestbed(t *testing.T) {
-	testbed.Start(`C:\Python\27\python.exe`, `C:\Program Files (x86)\Google\google_appengine`)
-	defer testbed.Close()
+func TestContextResultText(t *testing.T) {
+	app := NewApplication()
+	f := func(c Context) Result { return nil }
+	app.RouteFunc("/", f)
 	
+	w := NewResponseTester()
 	r, _ := http.NewRequest("GET", "http://example.com/", nil)
-	c := testbed.NewContext(r)
+	c := NewContext(app, w, r)
 	
-	testbed.SetUp()
-	
-	low, high, err := datastore.AllocateIDs(c, "Test", nil, 10)
-	if err != nil {
-		t.Errorf("datastore.AllocateIDs returns error: %v", err)
+	res := c.Text("This is a test value")
+	if res == nil {
+		t.Errorf("Context.Text() returns nil")
 	}
-	if high - low != 10 {
-		t.Errorf("datastore.AllocateIDs returns wrong values: %d, %d", low, high)
+	if res.StatusCode() != http.StatusOK {
+		t.Errorf("Result.StatusCode() should be http.StatusOK")
 	}
+	if ct := res.Header().Get("Content-Type"); !strings.HasPrefix(ct, "text/plain") {
+		t.Errorf("Result.Header()[Content-Type] should be text/plain: %s", ct)
+	}
+	res.Execute(c)
 	
-	// teardown
-	testbed.TearDowm()
+	body := w.body.String()
+	if body != "This is a test value" {
+		t.Errorf("Result should be This is a test value")
+	}
+}
+
+func TestContextResultRedirect(t *testing.T) {
+	app := NewApplication()
+	f := func(c Context) Result { return nil }
+	app.RouteFunc("/", f)
+	
+	w := NewResponseTester()
+	r, _ := http.NewRequest("GET", "http://example.com/", nil)
+	c := NewContext(app, w, r)
+	
+	res := c.Redirect("http://example.com/redirect")
+	if res == nil {
+		t.Errorf("Context.Redirect() returns nil")
+	}
+	if res.StatusCode() != http.StatusFound {
+		t.Errorf("Result.StatusCode() should be http.StatusFound")
+	}
+	if res.Header().Get("Location") != "http://example.com/redirect" {
+		t.Errorf("Result.Header() returns wrong value")
+	}
+	res.Execute(c)
+}
+
+func TestContextResultNotFound(t *testing.T) {
+	app := NewApplication()
+	f := func(c Context) Result { return nil }
+	app.RouteFunc("/", f)
+	
+	w := NewResponseTester()
+	r, _ := http.NewRequest("GET", "http://example.com/", nil)
+	c := NewContext(app, w, r)
+	
+	res := c.NotFound()
+	if res == nil {
+		t.Errorf("Context.NotFound() returns nil")
+	}
+	if res.StatusCode() != http.StatusNotFound {
+		t.Errorf("Result.StatusCode() should be http.StatusNotFound")
+	}
+	res.Execute(c)
+}
+
+func TestContextResultAbort(t *testing.T) {
+	app := NewApplication()
+	f := func(c Context) Result { return nil }
+	app.RouteFunc("/", f)
+	
+	w := NewResponseTester()
+	r, _ := http.NewRequest("GET", "http://example.com/", nil)
+	c := NewContext(app, w, r)
+	
+	err := errors.New("This is a test error")
+	res := c.Abort(err)
+	if res == nil {
+		t.Errorf("Context.Abort() returns nil")
+	}
+	if res.StatusCode() != http.StatusInternalServerError {
+		t.Errorf("Result.StatusCode() should be http.StatusInternalServerError")
+	}
+	res.Execute(c)
+}
+
+func TestContextResultAbortCode(t *testing.T) {
+	app := NewApplication()
+	f := func(c Context) Result { return nil }
+	app.RouteFunc("/", f)
+	
+	w := NewResponseTester()
+	r, _ := http.NewRequest("GET", "http://example.com/", nil)
+	c := NewContext(app, w, r)
+	
+	res := c.AbortCode(http.StatusInternalServerError)
+	if res == nil {
+		t.Errorf("Context.AbortCode() returns nil")
+	}
+	if res.StatusCode() != http.StatusInternalServerError {
+		t.Errorf("Result.StatusCode() should be http.StatusInternalServerError")
+	}
+	res.Execute(c)
+}
+
+func TestContextResultPanic(t *testing.T) {
+	app := NewApplication()
+	f := func(c Context) Result { return nil }
+	app.RouteFunc("/", f)
+	
+	app.LogLevel = LogLevelNo
+	
+	w := NewResponseTester()
+	r, _ := http.NewRequest("GET", "http://example.com/", nil)
+	c := NewContext(app, w, r)
+	
+	err := errors.New("This is a test error")
+	res := c.resultPanic(err)
+	if res == nil {
+		t.Errorf("Context.resultPanic() returns nil")
+	}
+	if res.StatusCode() != http.StatusInternalServerError {
+		t.Errorf("Result.StatusCode() should be http.StatusInternalServerError")
+	}
+	res.Execute(c)
+}
+
+func TestContextExecuteMatch(t *testing.T) {
+	app := NewApplication()
+	f := func(c Context) Result { return c.Text("OK") }
+	app.RouteFunc("/", f)
+	
+	w := NewResponseTester()
+	r, _ := http.NewRequest("GET", "http://example.com/", nil)
+	c := NewContext(app, w, r)
+	
+	c.Execute()
+	res := c.Result()
+	
+	if res == nil {
+		t.Errorf("Context.Result() returns nil")
+	}
+	if res.StatusCode() != http.StatusOK {
+		t.Errorf("Result.StatusCode() should be http.StatusOK")
+	}
+	if ct := res.Header().Get("Content-Type"); !strings.HasPrefix(ct, "text/plain") {
+		t.Errorf("Result.Header()[Content-Type] should be text/plain: %s", ct)
+	}
+	res.Execute(c)
+	
+	body := w.body.String()
+	if body != "OK" {
+		t.Errorf("expect OK: ", body)
+	}
 }
