@@ -9,6 +9,7 @@ This is under construction. Do not use production.
 Getting started
 ===============
 
+Hello World:
 ::
     package hello
     
@@ -70,5 +71,6 @@ The result created by methods of Context like this:
 Template
 ========
 
+To Render html template:
 ::
     c.Html("index", values)
