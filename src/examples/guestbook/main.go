@@ -2,7 +2,6 @@ package guestbook
 
 import (
 	"hikaru"
-	"hikaru/db"
 	"appengine/datastore"
 	"time"
 )
@@ -35,18 +34,8 @@ func handleSign(c hikaru.Context) hikaru.Result {
 		Content: c.Form("content"),
 		Date:    time.Now(),
 	}
-	//key := db.KeyZero(c, "Greeting", nil)
-	//_, err := db.Put(c, key, &g)
 	key := datastore.NewIncompleteKey(c, "Greeting", nil)
-	
-	//_, err := datastore.Put(c, key, &g)
-	//if err != nil {
-	//	return c.Abort(err)
-	//}
-	
-	key_ch, err_ch := db.PutAsync(c, key, &g)
-	_ = <- key_ch
-	err := <- err_ch
+	_, err := datastore.Put(c, key, &g)
 	if err != nil {
 		return c.Abort(err)
 	}
