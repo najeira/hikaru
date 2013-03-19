@@ -34,7 +34,11 @@ Bind func to path:
 ::
     app.RouteFunc("/", handleWelcome)
 
-You can use named parameter by '<' and '>':
+
+Named parameter
+---------------
+
+To use named parameter, use '<' and '>':
 ::
     app.RouteFunc("/blog/<id>", handleBlog)
 
@@ -46,7 +50,11 @@ And Context.Val has "id" value:
 
 The id will be "123" when "/blog/123", "hello" when "/blog/hello".
 
-You can use your original route that implements hikaru.Route:
+
+Custom route
+------------
+
+To use your original route, implements hikaru.Route interface and it pass to Route method:
 ::
     app.Route(route)
 
