@@ -37,22 +37,22 @@ func TestApplication(t *testing.T) {
 	if app.Debug != false {
 		t.Errorf("Application.Debug should be false")
 	}
-	if app.Renderer != nil {
-		t.Errorf("Application.Renderer should be nil")
+	if len(app.Renderers) != 0 {
+		t.Errorf("Application.Renderers should be empty")
 	}
 }
 
 type RendererTester struct {}
 
-func (r *RendererTester) Render(string, interface{}) string {
-	return ""
+func (r *RendererTester) Render(arg ...interface{}) Result {
+	return NewResult()
 }
 
 func TestApplicationSetRenderer(t *testing.T) {
 	app := NewApplication()
 	r := new(RendererTester)
-	app.SetRenderer(r)
-	if app.Renderer != r {
+	app.SetRenderer("html", r)
+	if app.GetRenderer("html") != r {
 		t.Errorf("Application.SetRenderer failed")
 	}
 }
@@ -218,11 +218,11 @@ func TestContext(t *testing.T) {
 	if c.Result() != nil {
 		t.Errorf("Context.RouteData() returns not nil value")
 	}
-	if c.IsMethodPost() {
-		t.Errorf("Context.IsMethodPost() returns true")
+	if c.IsPost() {
+		t.Errorf("Context.IsPost() returns true")
 	}
-	if !c.IsMethodGet() {
-		t.Errorf("Context.IsMethodGet() returns false")
+	if !c.IsGet() {
+		t.Errorf("Context.IsGet() returns false")
 	}
 }
 

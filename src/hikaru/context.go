@@ -4,6 +4,7 @@ import (
 	"appengine"
 	"appengine_internal"
 	"bytes"
+	"errors"
 	"fmt"
 	"net/http"
 	"runtime/debug"
@@ -27,8 +28,8 @@ type Context interface {
 	Vals(key string) []string
 	Form(key string) string
 	Forms(key string) []string
-	IsMethodPost() bool
-	IsMethodGet() bool
+	IsPost() bool
+	IsGet() bool
 	Raw(body []byte, content_type string) Result
 	Text(body string) Result
 	Redirect(path string) Result
@@ -38,7 +39,8 @@ type Context interface {
 	NotFound() Result
 	AbortCode(code int) Result
 	Abort(err interface{}) Result
-	Html(name string, data interface{}) Result
+	Html(args ...interface{}) Result
+	//Json(args ...interface{}) Result
 }
 
 type HikaruContext struct {
@@ -111,13 +113,21 @@ func (c *HikaruContext) SetResult(result Result) {
 }
 
 func (c *HikaruContext) Execute() {
-	ok := c.executeRoute()
-	if ok {
-		c.executeContext()
-	} else {
-		c.executeNotFound()
-	}
+	c.executeContext()
 	c.executeResult()
+}
+
+func (c *HikaruContext) executeContext() {
+	defer c.executeRecover()
+	c.executeRequestFilters()
+	if c.result == nil {
+		c.executeRoute()
+		if c.routeData != nil {
+			c.executeHandler()
+		} else {
+			c.executeNotFound()
+		}
+	}
 }
 
 // Returns whether the request has the given key
@@ -193,12 +203,12 @@ func (c *HikaruContext) Forms(key string) []string {
 }
 
 // Returns whether the request method is POST or not.
-func (c *HikaruContext) IsMethodPost() bool {
+func (c *HikaruContext) IsPost() bool {
 	return strings.ToUpper(c.Method()) == "POST"
 }
 
 // Returns whether the request method is GET or not.
-func (c *HikaruContext) IsMethodGet() bool {
+func (c *HikaruContext) IsGet() bool {
 	return strings.ToUpper(c.Method()) == "GET"
 }
 
@@ -269,34 +279,55 @@ func (c *HikaruContext) Abort(err interface{}) Result {
 
 // Renders html template and returns a new Result with the
 // rendered html content.
-func (c *HikaruContext) Html(name string, data interface{}) Result {
+func (c *HikaruContext) Html(args ...interface{}) Result {
 	// TODO: middlewares
-
-	text := c.application.Renderer.Render(name, data)
-
-	result := NewResult()
-	result.statusCode = http.StatusOK
-	result.body.WriteString(text)
-	result.header.Set("Content-Type", "text/html; charset=utf-8")
-
+	r := c.application.GetRenderer("html")
+	if r == nil {
+		panic(errors.New("no html renderer"))
+	}
+	result := r.Render(args...)
 	// TODO: middlewares
-
 	return result
 }
 
-func (c *HikaruContext) executeRoute() bool {
+func (c *HikaruContext) executeRoute() {
 	c.routeData = c.application.Match(c.httpRequest)
-	return c.routeData != nil
 }
 
 func (c *HikaruContext) executeNotFound() {
 	c.result = c.NotFound()
 }
 
-func (c *HikaruContext) executeContext() {
-	//TODO: before handler middlewares
-	c.executeHandler()
-	//TODO: after handler middlewares
+func (c *HikaruContext) executeRequestFilters() {
+	for _, f := range c.application.RequestFilters {
+		if res := f(c.httpRequest); res != nil {
+			c.result = res
+		}
+	}
+}
+
+func (c *HikaruContext) executeHandlerFilters() {
+	for _, f := range c.application.HandlerFilters {
+		if res := f(c, c.routeData.Route.Handler()); res != nil {
+			c.result = res
+		}
+	}
+}
+
+func (c *HikaruContext) executeErrorFilters() {
+	for _, f := range c.application.ErrorFilters {
+		if res := f(c, c.result); res != nil {
+			c.result = res
+		}
+	}
+}
+
+func (c *HikaruContext) executeResponseFilters() {
+	for _, f := range c.application.ResponseFilters {
+		if res := f(c, c.result); res != nil {
+			c.result = res
+		}
+	}
 }
 
 func (c *HikaruContext) executeRecover() {
