@@ -3,7 +3,7 @@ About
 
 Hikaru is a web framework for Google App Engine Go.
 
-This is under construction. Do not use production.
+This is under construction. Do not use for production services.
 
 
 Getting started
