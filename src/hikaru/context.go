@@ -148,14 +148,8 @@ func (c *HikaruContext) Has(key string) bool {
 // If there are no values associated with the key, returns "".
 // To access multiple values of a key, use Vals.
 func (c *HikaruContext) Val(key string) string {
-	if c.routeData != nil {
-		v, ok := c.routeData.Params[key]
-		if ok {
-			return v
-		}
-	}
-	vs, ok2 := c.httpRequest.URL.Query()[key]
-	if ok2 && len(vs) >= 1 {
+	vs := c.Vals(key)
+	if vs != nil && len(vs) >= 1 {
 		return vs[0]
 	}
 	return ""
