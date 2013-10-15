@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<meta charset="utf-8" />
+		<meta name="robots" content="{{with .MetaRobots}}{{.}}{{else}}index,follow{{end}}" />
+		<meta name="viewport" content="width=device-width,user-scalable=yes,initial-scale=1.0,maximum-scale=3.0" />
+		<title>{{with .MetaTitle}}{{.}}{{else}}Paster{{end}}</title>
+		<link rel="stylesheet" href="/static/app.css?1" type="text/css" />
+		<link rel="shortcut icon" href="/static/favicon.ico" />
+	</head>
+	<body>
+		<div id="header">
+		</div>
+		<div id="content">
+			{{template "content" .}}
+		</div>
+		<div id="foooter">
+		</div>
+	</body>
+</html>
