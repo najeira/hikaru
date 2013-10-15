@@ -17,7 +17,7 @@ Getting started
 		app.Start()
 	}
 
-	func handleIndex(c *hikaru.Context) hikaru.Result {
+	func handleIndex(c hikaru.Context) hikaru.Result {
 		return c.Text("Hello Hikaru!")
 	}
 
