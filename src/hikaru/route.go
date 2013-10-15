@@ -75,7 +75,7 @@ func compileRoutePattern(pattern string) *regexp.Regexp {
 			name, reg = parts[0], parts[1]
 		} else {
 			name = body
-			reg = "[^\\?#/]+"
+			reg = "[^" + regexp.QuoteMeta("?#/") + "]+"
 		}
 		return fmt.Sprintf("(?P<%s>%s)", regexp.QuoteMeta(name), reg)
 	})
