@@ -19,10 +19,6 @@ type Logger interface {
 	Flush()
 }
 
-type LogLogger struct {
-	level int
-}
-
 func (c *Context) logPrint(level int, message string) {
 }
 
