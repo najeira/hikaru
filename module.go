@@ -37,7 +37,8 @@ func (m *Module) Handle(method, p string, h []HandlerFunc) {
 }
 
 func (m *Module) Execute(w http.ResponseWriter, r *http.Request, h []HandlerFunc, p httprouter.Params) {
-	c := NewContext(m.app, w, r, h)
+	c := &Context{}
+	c.init(m.app, w, r, h)
 	if p != nil {
 		for _, v := range p {
 			c.Values.Add(v.Key, v.Value)
@@ -76,7 +77,7 @@ func (m *Module) Static(p, root string) {
 		} else {
 			original := c.Request.URL.Path
 			c.Request.URL.Path = fp
-			fileServer.ServeHTTP(c.ResponseWriter, c.Request)
+			fileServer.ServeHTTP(c.res, c.Request)
 			c.Request.URL.Path = original
 		}
 	})

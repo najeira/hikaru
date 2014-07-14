@@ -2,69 +2,113 @@ package hikaru
 
 import (
 	"bytes"
+	"errors"
+	"io"
 	"net/http"
+	"sync"
 )
 
-type Result struct {
-	StatusCode int
-	Header     http.Header
-	Body       bytes.Buffer
+var (
+	ErrResponseClosed = errors.New("hikaru: response closed")
+	bytesBufferPool   sync.Pool
+)
+
+func getBytesBuffer() *bytes.Buffer {
+	if v := bytesBufferPool.Get(); v != nil {
+		b := v.(*bytes.Buffer)
+		b.Reset()
+		return b
+	}
+	return &bytes.Buffer{}
 }
 
-// Creates and returns a new Result.
-func NewResult() *Result {
-	r := &Result{
-		StatusCode: http.StatusOK,
-		Header:     make(http.Header),
-	}
-	return r
+func putBytesBuffer(b *bytes.Buffer) {
+	b.Reset()
+	bytesBufferPool.Put(b)
+}
+
+func (c *Context) Header() http.Header {
+	return c.res.Header()
 }
 
 // Sets a response header.
-func (r *Result) SetHeader(key, value string) {
-	r.Header.Set(key, value)
+func (c *Context) SetHeader(key, value string) {
+	c.res.Header().Set(key, value)
 }
 
 // Adds a response header.
-func (r *Result) AddHeader(key, value string) {
-	r.Header.Add(key, value)
+func (c *Context) AddHeader(key, value string) {
+	c.res.Header().Add(key, value)
 }
 
 // Adds a cookie header.
-func (r *Result) SetCookie(cookie *http.Cookie) {
-	r.Header.Set("Set-Cookie", cookie.String())
+func (c *Context) SetCookie(cookie *http.Cookie) {
+	c.res.Header().Set("Set-Cookie", cookie.String())
 }
 
-func (r *Result) Flush(w http.ResponseWriter, req *http.Request) {
-	copyHttpHeader(r.Header, w.Header())
-	loc := r.Header.Get("Location")
-	if loc != "" {
-		http.Redirect(w, req, loc, r.StatusCode)
-	} else {
-		if r.StatusCode > 0 {
-			w.WriteHeader(r.StatusCode)
-		}
-		if r.Body.Len() > 0 {
-			r.Body.WriteTo(w)
-		}
+func (c *Context) WriteBody(b []byte) (int, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.closed {
+		return 0, ErrResponseClosed
+	}
+	if c.body == nil {
+		c.body = getBytesBuffer()
+	}
+	return c.body.Write(b)
+}
+
+func (c *Context) setClosed() bool {
+	c.mu.Lock()
+	closed := c.closed
+	c.closed = true
+	c.mu.Unlock()
+	return !closed
+}
+
+func (c *Context) close() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.closed = true
+	if c.body != nil {
+		putBytesBuffer(c.body)
+		c.body = nil
 	}
 }
 
-func copyHttpHeader(src, dst http.Header) {
-	if src != nil {
-		for k, vs := range src {
-			if len(vs) >= 2 {
-				for _, v := range vs {
-					if v != "" {
-						dst.Add(k, v)
-					}
-				}
-			} else {
-				v := vs[0]
-				if v != "" {
-					dst.Set(k, v)
-				}
-			}
-		}
+func (c *Context) write(code int, msg []byte) {
+	if !c.setClosed() {
+		return // already closed
+	}
+	c.res.WriteHeader(code)
+	if msg != nil {
+		c.res.Write(msg)
+	}
+	c.close()
+}
+
+func (c *Context) writeToWriter(out io.Writer) {
+	if !c.setClosed() {
+		c.logDebugf("[hikaru] writeToWriter: already closed")
+		return // already closed
+	}
+	c.res.WriteHeader(c.statusCode)
+	if c.body != nil && c.body.Len() > 0 {
+		c.body.WriteTo(out)
+	}
+	c.close()
+}
+
+func (c *Context) flush() {
+	if !c.setClosed() {
+		c.logDebugf("[hikaru] flush: already closed")
+		return // already closed
+	}
+	loc := c.res.Header().Get("Location")
+	if loc != "" {
+		http.Redirect(c.res, c.Request, loc, c.statusCode)
+		c.close()
+	} else {
+		c.writeToWriter(c.res)
 	}
 }

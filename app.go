@@ -3,32 +3,30 @@ package hikaru
 import (
 	"github.com/julienschmidt/httprouter"
 	"net/http"
-	"sync"
-	"time"
 )
 
 type Config struct {
-	Debug     bool
-	LogLevel  int
 	ProxyAddr string
-	Timeout   time.Duration
 }
 
 type Application struct {
 	*Module
-	Config *Config
-	Router *httprouter.Router
-	mutex  sync.RWMutex
+	Config       *Config
+	Router       *httprouter.Router
+	loggers      []Logger
+	hikaruLogger Logger
 }
 
 func New(config *Config) *Application {
 	if config == nil {
-		config = &Config{LogLevel: LogLevelInfo}
+		config = &Config{}
 	}
 	app := &Application{
-		Config: config,
-		Router: httprouter.New(),
+		Config:  config,
+		Router:  httprouter.New(),
+		loggers: make([]Logger, 0),
 	}
+	app.SetHikaruLog(LogLevelWarn)
 	app.Module = &Module{
 		Handlers: nil,
 		parent:   nil,
@@ -46,4 +44,8 @@ func (app *Application) Run(addr string) {
 	if err := http.ListenAndServe(addr, app); err != nil {
 		panic(err)
 	}
+}
+
+func (app *Application) AddLogger(logger Logger) {
+	app.loggers = append(app.loggers, logger)
 }

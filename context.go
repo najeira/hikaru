@@ -9,7 +9,6 @@ import (
 	"net/url"
 	"runtime/debug"
 	"strings"
-	"time"
 )
 
 // Returns the request URL.
@@ -93,78 +92,82 @@ func (c *Context) ProxyAddrs() []string {
 	return nil
 }
 
-// Creates a new Result with raw string and content type.
-func (c *Context) Raw(body []byte, content_type string) {
-	c.Result.Body.Write(body)
+// Writes raw bytes and content type.
+func (c *Context) Write(body []byte, content_type string) error {
+	_, err := c.WriteBody(body)
+	if err != nil {
+		return err
+	}
 	if content_type != "" {
-		c.Result.Header.Set("Content-Type", content_type)
+		c.SetHeader("Content-Type", content_type)
 	}
+	return nil
 }
 
-// Creates a new Result with text string.
+// Writes a text string.
 // The content type should be "text/plain; charset=utf-8".
-func (c *Context) Text(body string) {
-	c.Raw([]byte(body), "text/plain; charset=utf-8")
+func (c *Context) Text(body string) error {
+	return c.Write([]byte(body), "text/plain; charset=utf-8")
 }
 
-func (c *Context) Json(value interface{}) {
-	e := json.NewEncoder(&c.Result.Body)
+func (c *Context) Json(value interface{}) error {
+	e := json.NewEncoder(c.body)
 	if err := e.Encode(value); err != nil {
-		c.Fail(err)
-	} else {
-		c.Result.Header.Set("Content-Type", "application/json; charset=utf-8")
+		//c.Fail(err)
+		return err
 	}
+	c.SetHeader("Content-Type", "application/json; charset=utf-8")
+	return nil
 }
 
-// Creates and returns a new Result with HTTP 302 Found.
+// Sets response to HTTP 302 Found.
 func (c *Context) RedirectFound(path string) {
 	c.Redirect(path, http.StatusFound)
 }
 
-// Creates and returns a new Result with HTTP 301 Moved Permanently.
+// Sets response to HTTP 301 Moved Permanently.
 func (c *Context) RedirectMoved(path string) {
 	c.Redirect(path, http.StatusMovedPermanently)
 }
 
-// Creates and returns a new Result with HTTP 3xx.
+// Sets response to HTTP 3xx.
 func (c *Context) Redirect(path string, code int) {
-	c.Result.StatusCode = code
-	c.Result.Header.Set("Location", path)
+	c.statusCode = code
+	c.SetHeader("Location", path)
 }
 
-// Creates and returns a new Result with HTTP 304 Not Modified.
+// Sets response to HTTP 304 Not Modified.
 func (c *Context) NotModified() {
 	c.Abort(http.StatusNotModified)
 }
 
-// Creates and returns a new Result with HTTP 401 Unauthorized.
+// Sets response to HTTP 401 Unauthorized.
 func (c *Context) Unauthorized() {
 	c.Abort(http.StatusUnauthorized)
 }
 
-// Creates and returns a new Result with HTTP 403 Forbidden.
+// Sets response to HTTP 403 Forbidden.
 func (c *Context) Forbidden() {
 	c.Abort(http.StatusForbidden)
 }
 
-// Creates and returns a new Result with HTTP 404 Not Found.
+// Sets response to HTTP 404 Not Found.
 func (c *Context) NotFound() {
 	c.Abort(http.StatusNotFound)
 }
 
-// Creates and returns a new Result with the given code.
+// Sets response by the given code.
 func (c *Context) Abort(code int) {
-	c.Result.StatusCode = code
+	c.statusCode = code
 }
 
-// Creates and returns a new Result with the given error
-// and HTTP 500 Internal Server Error.
+// Sets response to HTTP 500 Internal Server Error.
 func (c *Context) Fail(err interface{}) {
-	c.Result.StatusCode = http.StatusInternalServerError
+	c.statusCode = http.StatusInternalServerError
 }
 
 func (c *Context) SetStatusCode(code int) {
-	c.Result.StatusCode = code
+	c.statusCode = code
 }
 
 func (c *Context) Next() {
@@ -191,45 +194,17 @@ func (c *Context) handlePanic(err interface{}) {
 	stack := buf.String()
 	errMsg := fmt.Sprintf("%v\n%s", err, stack)
 	c.Errorln(errMsg)
-	c.Result = NewResult()
-	c.Result.StatusCode = http.StatusInternalServerError
-	if c.Application.Config.Debug {
-		c.Result.Body.WriteString(errMsg)
-		c.Result.Header.Set("Content-Type", "text/plain; charset=utf-8")
-	}
+	c.SetHeader("Content-Type", "text/plain; charset=utf-8")
+	c.write(http.StatusInternalServerError, []byte(errMsg))
+}
+
+func (c *Context) String() string {
+	return fmt.Sprintf("&{Context(Request=%s)}", c.Request)
 }
 
 func (c *Context) execute() {
 	defer c.recover()
-
-	t := c.Application.Config.Timeout
-	var to <-chan time.Time
-	if t <= 0 {
-		to = make(<-chan time.Time) // no timeout
-	} else {
-		to = time.After(t)
-	}
-
-	done := make(chan struct{})
-	go func() {
-		c.nextWithRecover()
-		close(done)
-	}()
-
-	select {
-	case <-done:
-		// succeeded
-	case <-to:
-		// timed out
-		c.Errorln("timed out")
-		c.Abort(500)
-	}
-}
-
-func (c *Context) nextWithRecover() {
-	defer c.recover()
+	c.logDebugf("[hikaru] execute: url is %v", c.Request.URL)
 	c.Next()
-	if c.Result != nil {
-		c.Result.Flush(c.ResponseWriter, c.Request)
-	}
+	c.flush()
 }
