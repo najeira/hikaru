@@ -78,6 +78,7 @@ func (c *Context) close() {
 
 func (c *Context) write(code int, msg []byte) {
 	if !c.setClosed() {
+		c.logInfoln("[hikaru] write: already closed")
 		return // already closed
 	}
 	c.res.WriteHeader(code)
@@ -89,7 +90,7 @@ func (c *Context) write(code int, msg []byte) {
 
 func (c *Context) writeToWriter(out io.Writer) {
 	if !c.setClosed() {
-		c.logDebugf("[hikaru] writeToWriter: already closed")
+		c.logInfoln("[hikaru] writeToWriter: already closed")
 		return // already closed
 	}
 	c.res.WriteHeader(c.statusCode)
@@ -99,15 +100,19 @@ func (c *Context) writeToWriter(out io.Writer) {
 	c.close()
 }
 
-func (c *Context) flush() {
+func (c *Context) writeRedirect(location string) {
 	if !c.setClosed() {
-		c.logDebugf("[hikaru] flush: already closed")
+		c.logInfoln("[hikaru] writeRedirect: already closed")
 		return // already closed
 	}
-	loc := c.res.Header().Get("Location")
-	if loc != "" {
-		http.Redirect(c.res, c.Request, loc, c.statusCode)
-		c.close()
+	http.Redirect(c.res, c.Request, location, c.statusCode)
+	c.close()
+}
+
+func (c *Context) flush() {
+	location := c.res.Header().Get("Location")
+	if location != "" {
+		c.writeRedirect(location)
 	} else {
 		c.writeToWriter(c.res)
 	}
