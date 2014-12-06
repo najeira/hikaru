@@ -37,11 +37,10 @@ func (m *Module) Handle(method, p string, h []HandlerFunc) {
 }
 
 func (m *Module) Execute(w http.ResponseWriter, r *http.Request, h []HandlerFunc, p httprouter.Params) {
-	c := &Context{}
-	c.init(m.app, w, r, h)
+	c := getContext(m.app, w, r, h)
 	if p != nil {
 		for _, v := range p {
-			c.Values.Add(v.Key, v.Value)
+			c.Add(v.Key, v.Value)
 		}
 	}
 	c.execute()
@@ -71,13 +70,13 @@ func (m *Module) Static(p, root string) {
 	p = path.Join(p, "/*filepath")
 	fileServer := http.FileServer(http.Dir(root))
 	m.GET(p, func(c *Context) {
-		fp, err := c.Values.String("filepath")
+		fp, err := c.TryString("filepath")
 		if err != nil {
 			c.Fail(err)
 		} else {
 			original := c.Request.URL.Path
 			c.Request.URL.Path = fp
-			fileServer.ServeHTTP(c.res, c.Request)
+			fileServer.ServeHTTP(c.ResponseWriter, c.Request)
 			c.Request.URL.Path = original
 		}
 	})

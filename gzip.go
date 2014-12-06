@@ -1,57 +1,81 @@
-// from https://raw.githubusercontent.com/phyber/negroni-gzip
-
 package hikaru
 
 import (
+	"bytes"
 	"compress/gzip"
+	"net/http"
 	"strings"
 )
 
-type gzipHandler struct {
+type gzipResponse struct {
+	response   http.ResponseWriter
+	statusCode int
+	body       bytes.Buffer
 }
 
-func Gzip() HandlerFunc {
-	h := &gzipHandler{}
-	return h.handle
+// gzipResponse should be http.ResponseWriter
+var _ http.ResponseWriter = (*gzipResponse)(nil)
+
+var GzipAcceptableContentTypes []string = []string{"text/", "application/json"}
+
+func (r *gzipResponse) Write(b []byte) (int, error) {
+	return r.body.Write(b)
 }
 
-var gzipAcceptableContentTypes []string = []string{"text/", "application/json"}
+func (r *gzipResponse) WriteHeader(code int) {
+	r.statusCode = code
+}
 
-func (h *gzipHandler) handle(c *Context) {
-	// Skip compression if the client doesn't accept gzip encoding.
-	if !strings.Contains(c.Request.Header.Get("Accept-Encoding"), "gzip") {
-		return
-	}
+func (r *gzipResponse) Header() http.Header {
+	return r.response.Header()
+}
 
-	// Call the next handler.
-	c.Next()
-
-	if c.body == nil || c.body.Len() <= 0 {
-		return
-	}
-
-	// Skip compression if the content type is not supported
-	headers := c.Header()
+func (r *gzipResponse) flush() {
+	// Get wether the content type is supported
+	headers := r.response.Header()
 	ct := headers.Get("Content-Type")
 	gzipable := false
-	for _, act := range gzipAcceptableContentTypes {
+	for _, act := range GzipAcceptableContentTypes {
 		if strings.HasPrefix(ct, act) {
 			gzipable = true
 			break
 		}
 	}
-	if !gzipable {
+	if gzipable {
+		// Set the appropriate gzip headers.
+		headers.Set("Content-Encoding", "gzip")
+		headers.Set("Vary", "Accept-Encoding")
+
+		// Delete the content length after we know we have been written to.
+		headers.Del("Content-Length")
+
+		// Compress and Write
+		gw := gzip.NewWriter(r.response)
+		defer gw.Close()
+		gw.Write(r.body.Bytes())
+	} else {
+		// Write original response directly
+		r.response.WriteHeader(r.statusCode)
+		r.response.Write(r.body.Bytes())
+	}
+}
+
+func GzipHandlerFunc(c *Context) {
+	// Skip compression if the client doesn't accept gzip encoding.
+	if !strings.Contains(c.GetHeader("Accept-Encoding"), "gzip") {
 		return
 	}
 
-	// Set the appropriate gzip headers.
-	headers.Set("Content-Encoding", "gzip")
-	headers.Set("Vary", "Accept-Encoding")
+	// Set a gzipResponse to the Context to wrap response
+	res := &gzipResponse{
+		response:   c.ResponseWriter,
+		statusCode: http.StatusOK,
+	}
+	c.ResponseWriter = res
 
-	// Delete the content length after we know we have been written to.
-	headers.Del("Content-Length")
+	// Call the next handler.
+	c.Next()
 
-	gw := gzip.NewWriter(c.res)
-	defer gw.Close()
-	c.writeToWriter(gw)
+	// Flush the response
+	res.flush()
 }

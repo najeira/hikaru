@@ -3,36 +3,31 @@ package hikaru
 import (
 	"github.com/julienschmidt/httprouter"
 	"net/http"
+	"time"
 )
-
-type Config struct {
-	ProxyAddr string
-}
 
 type Application struct {
 	*Module
-	Config       *Config
-	Router       *httprouter.Router
-	loggers      []Logger
-	hikaruLogger Logger
+	Router         *httprouter.Router
+	loggers        []Logger
+	closed         chan struct{}
+	hikaruLogLevel int
 }
 
-func New(config *Config) *Application {
-	if config == nil {
-		config = &Config{}
-	}
+func NewApplication() *Application {
 	app := &Application{
-		Config:  config,
-		Router:  httprouter.New(),
-		loggers: make([]Logger, 0),
+		Router:         httprouter.New(),
+		loggers:        make([]Logger, 0),
+		closed:         make(chan struct{}),
+		hikaruLogLevel: LogLevelWarn,
 	}
-	app.SetHikaruLog(LogLevelWarn)
 	app.Module = &Module{
 		Handlers: nil,
 		parent:   nil,
 		prefix:   "/",
 		app:      app,
 	}
+	//app.AddLogger(NewStderrLogger())
 	return app
 }
 
@@ -41,11 +36,36 @@ func (app *Application) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 }
 
 func (app *Application) Run(addr string) {
-	if err := http.ListenAndServe(addr, app); err != nil {
+	// start a logger flusher
+	go app.runLoggerFlusher()
+
+	// ListenAndServe will block
+	err := http.ListenAndServe(addr, app)
+
+	// the app was closed
+	close(app.closed)
+
+	if err != nil {
 		panic(err)
 	}
 }
 
 func (app *Application) AddLogger(logger Logger) {
 	app.loggers = append(app.loggers, logger)
+}
+
+func (app *Application) runLoggerFlusher() {
+	app.hikaruLogPrint(LogLevelDebug, "start a logger flusher")
+	interval := time.Second * 1
+	for {
+		select {
+		case <-app.closed:
+			// application was closed
+			app.hikaruLogPrint(LogLevelDebug, "stop a logger flusher")
+			break
+		case <-time.After(interval):
+			// flushes logs
+			app.logFlush()
+		}
+	}
 }

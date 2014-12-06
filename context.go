@@ -3,37 +3,37 @@ package hikaru
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"io"
 	"mime/multipart"
 	"net/http"
 	"net/url"
 	"runtime/debug"
+	"strconv"
 	"strings"
 	"sync"
-	"errors"
 )
 
 type context struct {
-	Application *Application
-	Request     *http.Request
-	Values      Values
-	ResponseWriter          http.ResponseWriter
-	handlers     []HandlerFunc
-	handlerIndex int
+	Application    *Application
+	Request        *http.Request
+	values         url.Values
+	ResponseWriter http.ResponseWriter
+	handlers       []HandlerFunc
+	handlerIndex   int
 }
 
 // Context should be http.ResponseWriter
 var _ http.ResponseWriter = (*Context)(nil)
-var _ http.ResponseWriter = (*context)(nil)
 
 var (
-	contextPool        sync.Pool
+	ErrKeyNotExist = errors.New("not exist")
+	contextPool    sync.Pool
 )
 
 // Returns the Context.
-func getContext(a *Application, w http.ResponseWriter, r *http.Request, h []HandlerFunc) *context {
-	var c *context
+func getContext(a *Application, w http.ResponseWriter, r *http.Request, h []HandlerFunc) *Context {
+	var c *Context
 	// try getting a Context from a pool.
 	if v := contextPool.Get(); v != nil {
 		c = v.(*Context)
@@ -50,27 +50,18 @@ func getContext(a *Application, w http.ResponseWriter, r *http.Request, h []Hand
 func releaseContext(c *Context) {
 	c.Application = nil
 	c.Request = nil
+	c.ResponseWriter = nil
+	c.values = nil
 	c.handlers = nil
 	c.handlerIndex = 0
-	c.ResponseWriter = nil
-	c.statusCode = http.StatusOK
-	c.responseWrote = false
 	contextPool.Put(c)
 }
 
 func (c *Context) init(a *Application, w http.ResponseWriter, r *http.Request, h []HandlerFunc) {
 	c.Application = a
 	c.Request = r
-	if c.Values != nil {
-		// sets the URL and clear old Values if the Values already allocated.
-		// reuse the Values make less allocations.
-		c.Values.u = r.URL
-		c.Values.v = nil
-	} else {
-		// allocate a new Values
-		c.Values = NewValues(r.URL)
-	}
 	c.ResponseWriter = w
+	c.values = nil
 	c.handlers = h
 	c.handlerIndex = 0
 }
@@ -113,22 +104,6 @@ func (c *Context) IsUpload() bool {
 	return strings.Contains(c.Request.Header.Get("Content-Type"), "multipart/form-data")
 }
 
-func (c *Context) GetForm() (Values, error) {
-	err := c.Request.ParseForm()
-	if err != nil {
-		return nil, err
-	}
-	return Values(c.Request.PostForm), nil
-}
-
-func (c *Context) GetMultipartForm() (*multipart.Form, error) {
-	err := c.Request.ParseMultipartForm(1024 * 1024 * 1024)
-	if err != nil {
-		return nil, err
-	}
-	return c.Request.MultipartForm, nil
-}
-
 func (c *Context) RemoteAddr() string {
 	ips := strings.Split(c.Request.RemoteAddr, ":")
 	if ips != nil && len(ips) > 0 && ips[0] != "" && ips[0] != "[" {
@@ -164,12 +139,133 @@ func (c *Context) ForwardedAddrs() []string {
 	return rets
 }
 
+func (c *Context) Values() url.Values {
+	if c.values == nil {
+		c.Request.ParseForm()
+		c.values = c.Request.Form
+	}
+	return c.values
+}
+
+func (c *Context) File(key string) (multipart.File, *multipart.FileHeader, error) {
+	return c.Request.FormFile(key)
+}
+
+// Has returns whether the request has the given key in the route values and
+// the query.
+func (c *Context) Has(key string) bool {
+	_, ok := c.Values()[key]
+	return ok
+}
+
+// Get gets the first value associated with the given key.
+// If there are no values associated with the key,
+// Get returns the failover string.
+// To access multiple values, use the map directly.
+func (c *Context) String(key string, failover string) string {
+	ret, err := c.TryString(key)
+	if err != nil {
+		return failover
+	}
+	return ret
+}
+
+// Get gets the first value associated with the given key.
+// If there are no values associated with the key,
+// Get returns the ErrKeyNotExist.
+func (c *Context) TryString(key string) (string, error) {
+	ss, ok := c.Values()[key]
+	if ok && ss != nil && len(ss) > 0 {
+		return ss[0], nil
+	}
+	return "", ErrKeyNotExist
+}
+
+func (c *Context) Int(key string, failover int64) int64 {
+	ret, err := c.TryInt(key)
+	if err != nil {
+		return failover
+	}
+	return ret
+}
+
+func (c *Context) TryInt(key string) (int64, error) {
+	s, err := c.TryString(key)
+	if err != nil {
+		return 0, err
+	}
+	return strconv.ParseInt(s, 10, 64)
+}
+
+func (c *Context) Float(key string, failover float64) float64 {
+	ret, err := c.TryFloat(key)
+	if err != nil {
+		return failover
+	}
+	return ret
+}
+
+func (c *Context) TryFloat(key string) (float64, error) {
+	s, err := c.TryString(key)
+	if err != nil {
+		return 0, err
+	}
+	return strconv.ParseFloat(s, 64)
+}
+
+func (c *Context) Bool(key string, failover bool) bool {
+	ret, err := c.TryBool(key)
+	if err != nil {
+		return failover
+	}
+	return ret
+}
+
+func (c *Context) TryBool(key string) (bool, error) {
+	s, err := c.TryString(key)
+	if err != nil {
+		return false, err
+	}
+	return strconv.ParseBool(s)
+}
+
+// Set sets the key to value. It replaces any existing values.
+func (c *Context) Set(key, value string) {
+	c.Values()[key] = []string{value}
+}
+
+// Add adds the key to value. It appends to any existing values associated
+// with key.
+func (c *Context) Add(key, value string) {
+	c.Values()[key] = append(c.Values()[key], value)
+}
+
+// Del deletes the values associated with key.
+func (c *Context) Del(key string) {
+	delete(c.Values(), key)
+}
+
+func (c *Context) Update(v url.Values) {
+	for key, ss := range v {
+		if ss != nil && len(ss) > 0 {
+			for _, s := range ss {
+				c.Values().Add(key, s)
+			}
+		}
+	}
+}
+
 // Returns response headers.
 func (c *Context) Header() http.Header {
 	return c.ResponseWriter.Header()
 }
 
-// Sets a response header.
+// GetHeader gets a response header.
+func (c *Context) GetHeader(key string) string {
+	return c.ResponseWriter.Header().Get(key)
+}
+
+// SetHeader sets a response header.
 func (c *Context) SetHeader(key, value string) {
 	c.ResponseWriter.Header().Set(key, value)
 }
@@ -185,19 +281,19 @@ func (c *Context) SetCookie(cookie *http.Cookie) {
 }
 
 func (c *Context) WriteHeader(code int) {
-	return c.ResponseWriter.WriteHeader(code)
+	c.ResponseWriter.WriteHeader(code)
 }
 
 func (c *Context) SetStatusCode(code int) {
-	return c.WriteHeader(code)
+	c.WriteHeader(code)
 }
 
-func (c *Context) Write(msg []byte) (int64, error) {
+func (c *Context) Write(msg []byte) (int, error) {
 	return c.ResponseWriter.Write(msg)
 }
 
 // Writes raw bytes and content type.
-func (c *Context) Raw(body []byte, contentType string) (int64, error) {
+func (c *Context) Raw(body []byte, contentType string) (int, error) {
 	if contentType != "" {
 		c.SetHeader("Content-Type", contentType)
 	}
@@ -206,7 +302,7 @@ func (c *Context) Raw(body []byte, contentType string) (int64, error) {
 
 // Writes a text string.
 // The content type should be "text/plain; charset=utf-8".
-func (c *Context) Text(body string) (int64, error) {
+func (c *Context) Text(body string) (int, error) {
 	return c.Raw([]byte(body), "text/plain; charset=utf-8")
 }
 
@@ -284,12 +380,8 @@ func (c *Context) handlePanic(err interface{}) {
 	stack := buf.String()
 	errMsg := fmt.Sprintf("%v\n%s", err, stack)
 	c.Errorln(errMsg)
-	c.SetHeader("Content-Type", "text/plain; charset=utf-8")
-	c.writeToResponse(http.StatusInternalServerError, []byte(errMsg))
-}
-
-func (c *Context) String() string {
-	return fmt.Sprintf("&{Context(Request=%s)}", c.Request)
+	c.WriteHeader(http.StatusInternalServerError)
+	c.Text(errMsg)
 }
 
 func (c *Context) execute() {

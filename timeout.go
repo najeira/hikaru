@@ -7,29 +7,38 @@ import (
 
 type timeoutHandler struct {
 	timeout time.Duration
-	msg     []byte
 }
 
-func Timeout(t time.Duration, msg string) HandlerFunc {
-	h := &timeoutHandler{t, []byte(msg)}
+func TimeoutHandler(t time.Duration) HandlerFunc {
+	h := &timeoutHandler{t}
 	return h.handle
 }
 
 func (h *timeoutHandler) handle(c *Context) {
-	done := make(chan bool, 1)
-	go func() {
-		h.nextWithRecover(c)
-		done <- true
-	}()
-	select {
-	case <-done:
-		return
-	case <-time.After(h.timeout):
-		c.write(http.StatusServiceUnavailable, h.msg)
-	}
-}
+	errCh := make(chan interface{}, 0)
 
-func (h *timeoutHandler) nextWithRecover(c *Context) {
-	defer c.recover()
-	c.Next()
+	// Start handlers on the new goroutine.
+	go func() {
+		// Fetch the handler's panic if exists.
+		defer func() {
+			if err := recover(); err != nil {
+				// Send error.
+				errCh <- err
+			} else {
+				// No error.
+				close(errCh)
+			}
+		}()
+		c.Next()
+	}()
+
+	// Wait handlers or timed out.
+	select {
+	case err := <-errCh:
+		if err != nil {
+			c.WriteHeader(http.StatusInternalServerError)
+		}
+	case <-time.After(h.timeout):
+		c.WriteHeader(http.StatusServiceUnavailable)
+	}
 }

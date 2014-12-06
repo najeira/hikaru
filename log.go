@@ -3,8 +3,8 @@ package hikaru
 import (
 	"bufio"
 	"fmt"
-	//"io"
 	"os"
+	"sync"
 )
 
 const (
@@ -26,48 +26,66 @@ var logLevelName = map[int]string{
 
 type Logger interface {
 	SetLevel(level int)
-	Write(level int, message string)
+	Write(level int, message []byte)
+	Flush()
 }
 
-type StdLogger struct {
+type BufioLogger struct {
 	level int
-	queue chan string
 	out   *bufio.Writer
+	mu    sync.Mutex
 }
 
-func NewStdLogger() *StdLogger {
-	return &StdLogger{
+func NewBufioLogger(out *bufio.Writer) *BufioLogger {
+	return &BufioLogger{
 		level: LogLevelDebug,
-		queue: make(chan string, 10),
-		out:   bufio.NewWriter(os.Stdout),
+		out:   out,
 	}
 }
 
-func (l *StdLogger) SetLevel(level int) {
+func NewStdoutLogger() Logger {
+	return NewBufioLogger(bufio.NewWriter(os.Stdout))
+}
+
+func NewStderrLogger() Logger {
+	return NewBufioLogger(bufio.NewWriter(os.Stderr))
+}
+
+func (l *BufioLogger) SetLevel(level int) {
 	l.level = level
 }
 
-func (l *StdLogger) Write(level int, message string) {
+func (l *BufioLogger) Write(level int, message []byte) {
 	if level > l.level {
 		return
 	}
-	name, ok := logLevelName[level]
-	if ok {
-		l.queue <- fmt.Sprintf("[%s] %s\n", name, message)
-	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.out.Write(message)
 }
 
-func (l *StdLogger) Run() {
-	for msg := range l.queue {
-		l.out.Write([]byte(msg))
-		l.out.Flush()
-	}
+func (l *BufioLogger) Flush() {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.out.Flush()
 }
 
 func (app *Application) logPrint(level int, message string) {
 	if app.loggers != nil {
+		name, ok := logLevelName[level]
+		if ok {
+			built := []byte(fmt.Sprintf("[%s] %s\n", name, message))
+			for _, logger := range app.loggers {
+				logger.Write(level, built)
+			}
+		}
+	}
+}
+
+func (app *Application) logFlush() {
+	if app.loggers != nil {
 		for _, logger := range app.loggers {
-			logger.Write(level, message)
+			logger.Flush()
 		}
 	}
 }
@@ -136,33 +154,19 @@ func (c *Context) Criticalf(format string, args ...interface{}) {
 	c.logPrint(LogLevelCritical, fmt.Sprintf(format, args...))
 }
 
-type hikaruLogger struct {
-	level int
-	app   *Application
+func (app *Application) SetHikaruLogLevel(level int) {
+	app.hikaruLogLevel = level
 }
 
-func (l *hikaruLogger) SetLevel(level int) {
-	l.level = level
-}
-
-func (l *hikaruLogger) Write(level int, message string) {
-	if level > l.level {
+func (app *Application) hikaruLogPrint(level int, message string) {
+	if level > app.hikaruLogLevel {
 		return
 	}
-	l.app.logPrint(level, message)
-}
-
-func (app *Application) SetHikaruLog(level int) {
-	app.hikaruLogger = &hikaruLogger{
-		level: level,
-		app:   app,
-	}
+	app.logPrint(level, message)
 }
 
 func (c *Context) hikaruLogPrint(level int, message string) {
-	if c.Application.hikaruLogger != nil {
-		c.Application.hikaruLogger.Write(level, message)
-	}
+	c.Application.hikaruLogPrint(level, message)
 }
 
 func (c *Context) logDebug(args ...interface{}) {
