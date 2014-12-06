@@ -25,6 +25,38 @@ var logLevelName = map[int]string{
 	LogLevelDebug:    "DEBUG",
 }
 
+var (
+	white   = string([]byte{27, 91, 57, 48, 59, 52, 55, 109})
+	yellow  = string([]byte{27, 91, 57, 55, 59, 52, 51, 109})
+	magenta = string([]byte{27, 91, 57, 55, 59, 52, 53, 109})
+	cyan    = string([]byte{27, 91, 57, 55, 59, 52, 54, 109})
+	reset   = string([]byte{27, 91, 48, 109})
+)
+
+func colorForStatus(code int) string {
+	if code >= 200 && code <= 299 {
+		return cyan
+	} else if code >= 300 && code <= 399 {
+		return white
+	} else if code >= 400 && code <= 499 {
+		return yellow
+	}
+	return magenta
+}
+
+func colorForLogLevel(level int) string {
+	if LogLevelInfo == level {
+		return cyan
+	} else if LogLevelWarn == level {
+		return yellow
+	} else if LogLevelError == level {
+		return magenta
+	} else if LogLevelCritical == level {
+		return magenta
+	}
+	return white
+}
+
 type Logger interface {
 	SetLevel(level int)
 	Write(level int, message []byte)
@@ -199,6 +231,16 @@ func (c *Context) logCriticalf(format string, args ...interface{}) {
 	c.internalLogPrint(LogLevelCritical, fmt.Sprintf(format, args...))
 }
 
+func LoggingHandlerFunc(c *Context) {
+	start := time.Now()
+	c.Next()
+	elapsed := time.Now().Sub(start)
+	status := c.GetStatusCode()
+	c.logInfof("%s%3d%s | %12v | %4s %-7s",
+		colorForStatus(status), status, reset,
+		elapsed, c.Method, c.URL.Path)
+}
+
 func (app *Application) SetLogger(logger Logger) {
 	app.logger = logger
 }
@@ -211,7 +253,10 @@ func logPrint(logger Logger, level int, message string) {
 	if logger != nil {
 		name, ok := logLevelName[level]
 		if ok {
-			built := []byte(fmt.Sprintf("[%s] %s\n", name, message))
+			built := []byte(fmt.Sprintf(
+				"%v &s[%5s]%s %s\n",
+				time.Now().Format("2006/01/02 - 15:04:05"),
+				colorForLogLevel(level), name, reset, message))
 			logger.Write(level, built)
 		}
 	}
