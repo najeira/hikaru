@@ -45,6 +45,7 @@ func (m *Module) Execute(w http.ResponseWriter, r *http.Request, h []HandlerFunc
 			c.Add(v.Key, v.Value)
 		}
 	}
+	c.logDebugf("execute: url is %v", c.Request.URL)
 	c.execute()
 }
 
