@@ -4,12 +4,76 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"mime/multipart"
 	"net/http"
 	"net/url"
 	"runtime/debug"
 	"strings"
+	"sync"
+	"errors"
 )
+
+type context struct {
+	Application *Application
+	Request     *http.Request
+	Values      Values
+	ResponseWriter          http.ResponseWriter
+	handlers     []HandlerFunc
+	handlerIndex int
+}
+
+// Context should be http.ResponseWriter
+var _ http.ResponseWriter = (*Context)(nil)
+var _ http.ResponseWriter = (*context)(nil)
+
+var (
+	contextPool        sync.Pool
+)
+
+// Returns the Context.
+func getContext(a *Application, w http.ResponseWriter, r *http.Request, h []HandlerFunc) *context {
+	var c *context
+	// try getting a Context from a pool.
+	if v := contextPool.Get(); v != nil {
+		c = v.(*Context)
+	} else {
+		c = &Context{}
+		c.context = context{}
+	}
+	c.init(a, w, r, h)
+	c.initEnv()
+	return c
+}
+
+// Release a Context.
+func releaseContext(c *Context) {
+	c.Application = nil
+	c.Request = nil
+	c.handlers = nil
+	c.handlerIndex = 0
+	c.ResponseWriter = nil
+	c.statusCode = http.StatusOK
+	c.responseWrote = false
+	contextPool.Put(c)
+}
+
+func (c *Context) init(a *Application, w http.ResponseWriter, r *http.Request, h []HandlerFunc) {
+	c.Application = a
+	c.Request = r
+	if c.Values != nil {
+		// sets the URL and clear old Values if the Values already allocated.
+		// reuse the Values make less allocations.
+		c.Values.u = r.URL
+		c.Values.v = nil
+	} else {
+		// allocate a new Values
+		c.Values = NewValues(r.URL)
+	}
+	c.ResponseWriter = w
+	c.handlers = h
+	c.handlerIndex = 0
+}
 
 // Returns the request URL.
 func (c *Context) URL() *url.URL {
@@ -66,57 +130,92 @@ func (c *Context) GetMultipartForm() (*multipart.Form, error) {
 }
 
 func (c *Context) RemoteAddr() string {
-	ret := ""
 	ips := strings.Split(c.Request.RemoteAddr, ":")
-	if ips != nil && len(ips) > 0 {
-		if ips[0] != "[" {
-			ret = ips[0]
-		}
+	if ips != nil && len(ips) > 0 && ips[0] != "" && ips[0] != "[" {
+		return ips[0]
 	}
-	if strings.Contains(c.Application.Config.ProxyAddr, ret) {
-		addrs := c.ProxyAddrs()
-		if addrs != nil && len(addrs) > 0 && addrs[0] != "" {
-			ret = strings.Split(addrs[0], ":")[0]
-		}
-	}
-	return ret
+	return ""
 }
 
-func (c *Context) ProxyAddrs() []string {
+func (c *Context) ForwardedAddr() string {
+	addrs := c.ForwardedAddrs()
+	if addrs != nil && len(addrs) > 0 {
+		return addrs[0]
+	}
+	return ""
+}
+
+func (c *Context) ForwardedAddrs() []string {
+	rets := make([]string, 0)
 	names := []string{"X-Forwarded-For", "X-Real-IP"}
 	for _, name := range names {
 		if ips := c.Request.Header.Get(name); ips != "" {
-			return strings.Split(ips, ",")
+			arr := strings.Split(ips, ",")
+			if arr != nil {
+				for _, ip := range arr {
+					parts := strings.Split(ip, ":")
+					if parts != nil && len(parts) > 0 && parts[0] != "" {
+						rets = append(rets, parts[0])
+					}
+				}
+			}
 		}
 	}
-	return nil
+	return rets
+}
+
+// Returns response headers.
+func (c *Context) Header() http.Header {
+	return c.ResponseWriter.Header()
+}
+
+// Sets a response header.
+func (c *Context) SetHeader(key, value string) {
+	c.ResponseWriter.Header().Set(key, value)
+}
+
+// Adds a response header.
+func (c *Context) AddHeader(key, value string) {
+	c.ResponseWriter.Header().Add(key, value)
+}
+
+// Adds a cookie header.
+func (c *Context) SetCookie(cookie *http.Cookie) {
+	c.ResponseWriter.Header().Set("Set-Cookie", cookie.String())
+}
+
+func (c *Context) WriteHeader(code int) {
+	return c.ResponseWriter.WriteHeader(code)
+}
+
+func (c *Context) SetStatusCode(code int) {
+	return c.WriteHeader(code)
+}
+
+func (c *Context) Write(msg []byte) (int64, error) {
+	return c.ResponseWriter.Write(msg)
 }
 
 // Writes raw bytes and content type.
-func (c *Context) Write(body []byte, content_type string) error {
-	_, err := c.WriteBody(body)
-	if err != nil {
-		return err
+func (c *Context) Raw(body []byte, contentType string) (int64, error) {
+	if contentType != "" {
+		c.SetHeader("Content-Type", contentType)
 	}
-	if content_type != "" {
-		c.SetHeader("Content-Type", content_type)
-	}
-	return nil
+	return c.ResponseWriter.Write(body)
 }
 
 // Writes a text string.
 // The content type should be "text/plain; charset=utf-8".
-func (c *Context) Text(body string) error {
-	return c.Write([]byte(body), "text/plain; charset=utf-8")
+func (c *Context) Text(body string) (int64, error) {
+	return c.Raw([]byte(body), "text/plain; charset=utf-8")
 }
 
 func (c *Context) Json(value interface{}) error {
-	e := json.NewEncoder(c.body)
+	c.SetHeader("Content-Type", "application/json; charset=utf-8")
+	e := json.NewEncoder(c.ResponseWriter)
 	if err := e.Encode(value); err != nil {
-		//c.Fail(err)
 		return err
 	}
-	c.SetHeader("Content-Type", "application/json; charset=utf-8")
 	return nil
 }
 
@@ -132,42 +231,33 @@ func (c *Context) RedirectMoved(path string) {
 
 // Sets response to HTTP 3xx.
 func (c *Context) Redirect(path string, code int) {
-	c.statusCode = code
 	c.SetHeader("Location", path)
+	http.Redirect(c.ResponseWriter, c.Request, path, code)
 }
 
 // Sets response to HTTP 304 Not Modified.
 func (c *Context) NotModified() {
-	c.Abort(http.StatusNotModified)
+	c.ResponseWriter.WriteHeader(http.StatusNotModified)
 }
 
 // Sets response to HTTP 401 Unauthorized.
 func (c *Context) Unauthorized() {
-	c.Abort(http.StatusUnauthorized)
+	c.ResponseWriter.WriteHeader(http.StatusUnauthorized)
 }
 
 // Sets response to HTTP 403 Forbidden.
 func (c *Context) Forbidden() {
-	c.Abort(http.StatusForbidden)
+	c.ResponseWriter.WriteHeader(http.StatusForbidden)
 }
 
 // Sets response to HTTP 404 Not Found.
 func (c *Context) NotFound() {
-	c.Abort(http.StatusNotFound)
-}
-
-// Sets response by the given code.
-func (c *Context) Abort(code int) {
-	c.statusCode = code
+	c.ResponseWriter.WriteHeader(http.StatusNotFound)
 }
 
 // Sets response to HTTP 500 Internal Server Error.
 func (c *Context) Fail(err interface{}) {
-	c.statusCode = http.StatusInternalServerError
-}
-
-func (c *Context) SetStatusCode(code int) {
-	c.statusCode = code
+	c.ResponseWriter.WriteHeader(http.StatusInternalServerError)
 }
 
 func (c *Context) Next() {
@@ -195,7 +285,7 @@ func (c *Context) handlePanic(err interface{}) {
 	errMsg := fmt.Sprintf("%v\n%s", err, stack)
 	c.Errorln(errMsg)
 	c.SetHeader("Content-Type", "text/plain; charset=utf-8")
-	c.write(http.StatusInternalServerError, []byte(errMsg))
+	c.writeToResponse(http.StatusInternalServerError, []byte(errMsg))
 }
 
 func (c *Context) String() string {
@@ -204,7 +294,6 @@ func (c *Context) String() string {
 
 func (c *Context) execute() {
 	defer c.recover()
-	c.logDebugf("[hikaru] execute: url is %v", c.Request.URL)
+	c.logDebugf("execute: url is %v", c.Request.URL)
 	c.Next()
-	c.flush()
 }
