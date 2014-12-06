@@ -3,31 +3,24 @@ package hikaru
 import (
 	"github.com/julienschmidt/httprouter"
 	"net/http"
-	"sync"
 	"time"
 )
 
-type Config struct {
-	Debug     bool
-	LogLevel  int
-	ProxyAddr string
-	Timeout   time.Duration
-}
-
 type Application struct {
 	*Module
-	Config *Config
-	Router *httprouter.Router
-	mutex  sync.RWMutex
+	Router         *httprouter.Router
+	logger         Logger
+	internalLogger Logger
+	closed         chan struct{}
 }
 
-func New(config *Config) *Application {
-	if config == nil {
-		config = &Config{LogLevel: LogLevelInfo}
-	}
+func New() *Application {
+	logger := NewStderrLogger()
+	logger.SetLevel(LogLevelWarn)
 	app := &Application{
-		Config: config,
-		Router: httprouter.New(),
+		Router:         httprouter.New(),
+		closed:         make(chan struct{}),
+		internalLogger: logger,
 	}
 	app.Module = &Module{
 		Handlers: nil,
@@ -43,7 +36,16 @@ func (app *Application) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 }
 
 func (app *Application) Run(addr string) {
-	if err := http.ListenAndServe(addr, app); err != nil {
+	// start a logger flusher
+	go app.runLoggerFlusher(time.Second * 1)
+
+	// ListenAndServe will block
+	err := http.ListenAndServe(addr, app)
+
+	// the app was closed
+	close(app.closed)
+
+	if err != nil {
 		panic(err)
 	}
 }

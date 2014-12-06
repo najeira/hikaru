@@ -30,19 +30,22 @@ func (m *Module) Module(component string, handlers ...HandlerFunc) *Module {
 }
 
 func (m *Module) Handle(method, p string, h []HandlerFunc) {
+	pp := path.Join(m.prefix, p)
 	h = m.combineHandlers(h)
-	m.app.Router.Handle(method, p, func(w http.ResponseWriter, r *http.Request, p httprouter.Params) {
-		m.Execute(w, r, h, p)
+	m.app.Router.Handle(method, pp, func(w http.ResponseWriter, r *http.Request, hp httprouter.Params) {
+		m.Execute(w, r, h, hp)
 	})
 }
 
-func (m *Module) Execute(w http.ResponseWriter, r *http.Request, h []HandlerFunc, p httprouter.Params) {
-	c := NewContext(m.app, w, r, h)
-	if p != nil {
-		for _, v := range p {
-			c.Values.Add(v.Key, v.Value)
+func (m *Module) Execute(w http.ResponseWriter, r *http.Request, h []HandlerFunc, hp httprouter.Params) {
+	c := getContext(m.app, w, r, h)
+	defer releaseContext(c)
+	if hp != nil {
+		for _, v := range hp {
+			c.Add(v.Key, v.Value)
 		}
 	}
+	c.logDebugf("hikaru: Request is %v", c.Request)
 	c.execute()
 }
 
@@ -70,7 +73,7 @@ func (m *Module) Static(p, root string) {
 	p = path.Join(p, "/*filepath")
 	fileServer := http.FileServer(http.Dir(root))
 	m.GET(p, func(c *Context) {
-		fp, err := c.Values.String("filepath")
+		fp, err := c.TryString("filepath")
 		if err != nil {
 			c.Fail(err)
 		} else {
@@ -85,7 +88,11 @@ func (m *Module) Static(p, root string) {
 func (m *Module) combineHandlers(handlers []HandlerFunc) []HandlerFunc {
 	s := len(m.Handlers) + len(handlers)
 	h := make([]HandlerFunc, 0, s)
-	h = append(h, m.Handlers...)
-	h = append(h, handlers...)
+	if m.Handlers != nil && len(m.Handlers) > 0 {
+		h = append(h, m.Handlers...)
+	}
+	if handlers != nil && len(handlers) > 0 {
+		h = append(h, handlers...)
+	}
 	return h
 }

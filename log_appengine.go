@@ -17,8 +17,8 @@ var levelFuncMap = map[int]logPrinter{
 }
 
 type AppEngineLogger struct {
-	level   int
 	context appengine.Context
+	level   int
 }
 
 func (l *AppEngineLogger) SetLevel(level int) {
@@ -29,12 +29,8 @@ func (l *AppEngineLogger) Write(level int, message string) {
 	if level > l.level {
 		return
 	}
-	f, ok := levelFuncMap[l.level]
+	f, ok := levelFuncMap[level]
 	if ok {
-		f(l.context, "%s", message)
+		f(l.context, message)
 	}
-}
-
-func (l *AppEngineLogger) Flush() {
-
 }
