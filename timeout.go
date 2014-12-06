@@ -2,6 +2,7 @@ package hikaru
 
 import (
 	"net/http"
+	"sync"
 	"time"
 )
 
@@ -15,7 +16,11 @@ func TimeoutHandler(t time.Duration) HandlerFunc {
 }
 
 func (h *timeoutHandler) handle(c *Context) {
-	errCh := make(chan interface{}, 0)
+	errCh := make(chan interface{}, 1)
+
+	// Hijack ResponseWriter
+	tr := &timeoutResponse{ResponseWriter: c.ResponseWriter}
+	c.ResponseWriter = tr
 
 	// Start handlers on the new goroutine.
 	go func() {
@@ -36,9 +41,37 @@ func (h *timeoutHandler) handle(c *Context) {
 	select {
 	case err := <-errCh:
 		if err != nil {
-			c.WriteHeader(http.StatusInternalServerError)
+			panic(err)
 		}
 	case <-time.After(h.timeout):
-		c.WriteHeader(http.StatusServiceUnavailable)
+		tr.WriteHeader(http.StatusServiceUnavailable)
+	}
+}
+
+type timeoutResponse struct {
+	http.ResponseWriter
+
+	mu          sync.Mutex
+	timedOut    bool
+	wroteHeader bool
+}
+
+func (r *timeoutResponse) Write(p []byte) (int, error) {
+	r.mu.Lock()
+	timedOut := r.timedOut
+	r.mu.Unlock()
+	if timedOut {
+		return 0, http.ErrHandlerTimeout
+	}
+	return r.ResponseWriter.Write(p)
+}
+
+func (r *timeoutResponse) WriteHeader(code int) {
+	r.mu.Lock()
+	done := r.timedOut || r.wroteHeader
+	r.wroteHeader = true
+	r.mu.Unlock()
+	if !done {
+		r.ResponseWriter.WriteHeader(code)
 	}
 }
