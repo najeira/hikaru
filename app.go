@@ -9,17 +9,18 @@ import (
 type Application struct {
 	*Module
 	Router         *httprouter.Router
-	loggers        []Logger
+	logger         Logger
+	internalLogger Logger
 	closed         chan struct{}
-	hikaruLogLevel int
 }
 
-func NewApplication() *Application {
+func New() *Application {
+	logger := NewStderrLogger()
+	logger.SetLevel(LogLevelWarn)
 	app := &Application{
 		Router:         httprouter.New(),
-		loggers:        make([]Logger, 0),
 		closed:         make(chan struct{}),
-		hikaruLogLevel: LogLevelWarn,
+		internalLogger: logger,
 	}
 	app.Module = &Module{
 		Handlers: nil,
@@ -27,7 +28,6 @@ func NewApplication() *Application {
 		prefix:   "/",
 		app:      app,
 	}
-	//app.AddLogger(NewStderrLogger())
 	return app
 }
 
@@ -37,7 +37,7 @@ func (app *Application) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 
 func (app *Application) Run(addr string) {
 	// start a logger flusher
-	go app.runLoggerFlusher()
+	go app.runLoggerFlusher(time.Second * 1)
 
 	// ListenAndServe will block
 	err := http.ListenAndServe(addr, app)
@@ -47,25 +47,5 @@ func (app *Application) Run(addr string) {
 
 	if err != nil {
 		panic(err)
-	}
-}
-
-func (app *Application) AddLogger(logger Logger) {
-	app.loggers = append(app.loggers, logger)
-}
-
-func (app *Application) runLoggerFlusher() {
-	app.hikaruLogPrint(LogLevelDebug, "start a logger flusher")
-	interval := time.Second * 1
-	for {
-		select {
-		case <-app.closed:
-			// application was closed
-			app.hikaruLogPrint(LogLevelDebug, "stop a logger flusher")
-			break
-		case <-time.After(interval):
-			// flushes logs
-			app.logFlush()
-		}
 	}
 }

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"sync"
+	"time"
 )
 
 const (
@@ -68,26 +69,6 @@ func (l *BufioLogger) Flush() {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.out.Flush()
-}
-
-func (app *Application) logPrint(level int, message string) {
-	if app.loggers != nil {
-		name, ok := logLevelName[level]
-		if ok {
-			built := []byte(fmt.Sprintf("[%s] %s\n", name, message))
-			for _, logger := range app.loggers {
-				logger.Write(level, built)
-			}
-		}
-	}
-}
-
-func (app *Application) logFlush() {
-	if app.loggers != nil {
-		for _, logger := range app.loggers {
-			logger.Flush()
-		}
-	}
 }
 
 func (c *Context) logPrint(level int, message string) {
@@ -154,77 +135,117 @@ func (c *Context) Criticalf(format string, args ...interface{}) {
 	c.logPrint(LogLevelCritical, fmt.Sprintf(format, args...))
 }
 
-func (app *Application) SetHikaruLogLevel(level int) {
-	app.hikaruLogLevel = level
-}
-
-func (app *Application) hikaruLogPrint(level int, message string) {
-	if level > app.hikaruLogLevel {
-		return
-	}
-	app.logPrint(level, message)
-}
-
-func (c *Context) hikaruLogPrint(level int, message string) {
-	c.Application.hikaruLogPrint(level, message)
+func (c *Context) internalLogPrint(level int, message string) {
+	c.Application.internalLogPrint(level, message)
 }
 
 func (c *Context) logDebug(args ...interface{}) {
-	c.hikaruLogPrint(LogLevelDebug, fmt.Sprint(args...))
+	c.internalLogPrint(LogLevelDebug, fmt.Sprint(args...))
 }
 
 func (c *Context) logDebugln(args ...interface{}) {
-	c.hikaruLogPrint(LogLevelDebug, fmt.Sprintln(args...))
+	c.internalLogPrint(LogLevelDebug, fmt.Sprintln(args...))
 }
 
 func (c *Context) logDebugf(format string, args ...interface{}) {
-	c.hikaruLogPrint(LogLevelDebug, fmt.Sprintf(format, args...))
+	c.internalLogPrint(LogLevelDebug, fmt.Sprintf(format, args...))
 }
 
 func (c *Context) logInfo(args ...interface{}) {
-	c.hikaruLogPrint(LogLevelInfo, fmt.Sprint(args...))
+	c.internalLogPrint(LogLevelInfo, fmt.Sprint(args...))
 }
 
 func (c *Context) logInfoln(args ...interface{}) {
-	c.hikaruLogPrint(LogLevelInfo, fmt.Sprintln(args...))
+	c.internalLogPrint(LogLevelInfo, fmt.Sprintln(args...))
 }
 
 func (c *Context) logInfof(format string, args ...interface{}) {
-	c.hikaruLogPrint(LogLevelInfo, fmt.Sprintf(format, args...))
+	c.internalLogPrint(LogLevelInfo, fmt.Sprintf(format, args...))
 }
 
 func (c *Context) logWarning(args ...interface{}) {
-	c.hikaruLogPrint(LogLevelWarn, fmt.Sprint(args...))
+	c.internalLogPrint(LogLevelWarn, fmt.Sprint(args...))
 }
 
 func (c *Context) logWarningln(args ...interface{}) {
-	c.hikaruLogPrint(LogLevelWarn, fmt.Sprintln(args...))
+	c.internalLogPrint(LogLevelWarn, fmt.Sprintln(args...))
 }
 
 func (c *Context) logWarningf(format string, args ...interface{}) {
-	c.hikaruLogPrint(LogLevelWarn, fmt.Sprintf(format, args...))
+	c.internalLogPrint(LogLevelWarn, fmt.Sprintf(format, args...))
 }
 
 func (c *Context) logError(args ...interface{}) {
-	c.hikaruLogPrint(LogLevelError, fmt.Sprint(args...))
+	c.internalLogPrint(LogLevelError, fmt.Sprint(args...))
 }
 
 func (c *Context) logErrorln(args ...interface{}) {
-	c.hikaruLogPrint(LogLevelError, fmt.Sprintln(args...))
+	c.internalLogPrint(LogLevelError, fmt.Sprintln(args...))
 }
 
 func (c *Context) logErrorf(format string, args ...interface{}) {
-	c.hikaruLogPrint(LogLevelError, fmt.Sprintf(format, args...))
+	c.internalLogPrint(LogLevelError, fmt.Sprintf(format, args...))
 }
 
 func (c *Context) logCritical(args ...interface{}) {
-	c.hikaruLogPrint(LogLevelCritical, fmt.Sprint(args...))
+	c.internalLogPrint(LogLevelCritical, fmt.Sprint(args...))
 }
 
 func (c *Context) logCriticalln(args ...interface{}) {
-	c.hikaruLogPrint(LogLevelCritical, fmt.Sprintln(args...))
+	c.internalLogPrint(LogLevelCritical, fmt.Sprintln(args...))
 }
 
 func (c *Context) logCriticalf(format string, args ...interface{}) {
-	c.hikaruLogPrint(LogLevelCritical, fmt.Sprintf(format, args...))
+	c.internalLogPrint(LogLevelCritical, fmt.Sprintf(format, args...))
+}
+
+func (app *Application) SetLogger(logger Logger) {
+	app.logger = logger
+}
+
+func (app *Application) SetInternalLogger(logger Logger) {
+	app.internalLogger = logger
+}
+
+func logPrint(logger Logger, level int, message string) {
+	if logger != nil {
+		name, ok := logLevelName[level]
+		if ok {
+			built := []byte(fmt.Sprintf("[%s] %s\n", name, message))
+			logger.Write(level, built)
+		}
+	}
+}
+
+func (app *Application) logPrint(level int, message string) {
+	logPrint(app.logger, level, message)
+}
+
+func (app *Application) internalLogPrint(level int, message string) {
+	logPrint(app.internalLogger, level, message)
+}
+
+func (app *Application) logFlush() {
+	if app.logger != nil {
+		app.logger.Flush()
+	}
+	if app.internalLogger != nil {
+		app.internalLogger.Flush()
+	}
+}
+
+func (app *Application) runLoggerFlusher(interval time.Duration) {
+	app.internalLogPrint(LogLevelDebug, "start a logger flusher")
+	for {
+		select {
+		case <-app.closed:
+			// application was closed
+			app.internalLogPrint(LogLevelDebug, "stop a logger flusher")
+			app.logFlush()
+			return
+		case <-time.After(interval):
+			// flushes logs
+			app.logFlush()
+		}
+	}
 }
