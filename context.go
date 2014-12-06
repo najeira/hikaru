@@ -15,12 +15,12 @@ import (
 )
 
 type context struct {
-	Application    *Application
-	Request        *http.Request
-	values         url.Values
-	ResponseWriter http.ResponseWriter
-	handlers       []HandlerFunc
-	handlerIndex   int
+	*http.Request
+	http.ResponseWriter
+	Application  *Application
+	values       url.Values
+	handlers     []HandlerFunc
+	handlerIndex int8
 }
 
 // Context should be http.ResponseWriter
@@ -58,27 +58,15 @@ func releaseContext(c *Context) {
 }
 
 func (c *Context) init(a *Application, w http.ResponseWriter, r *http.Request, h []HandlerFunc) {
+	if len(h) >= 128 {
+		panic("handlers shold be less then 128")
+	}
 	c.Application = a
 	c.Request = r
 	c.ResponseWriter = w
 	c.values = nil
 	c.handlers = h
 	c.handlerIndex = 0
-}
-
-// Returns the request URL.
-func (c *Context) URL() *url.URL {
-	return c.Request.URL
-}
-
-// Returns the request path.
-func (c *Context) Path() string {
-	return c.Request.URL.Path
-}
-
-// Returns the request method.
-func (c *Context) Method() string {
-	return c.Request.Method
 }
 
 // Returns whether the request method is POST or not.
@@ -97,7 +85,7 @@ func (c *Context) IsAjax() bool {
 
 func (c *Context) IsSecure() bool {
 	//HTTP_X_FORWARDED_SSL, HTTP_X_FORWARDED_SCHEME, HTTP_X_FORWARDED_PROTO
-	return c.Request.URL.Scheme == "XMLHttpRequest"
+	return c.Request.URL.Scheme == "https"
 }
 
 func (c *Context) IsUpload() bool {
@@ -360,7 +348,7 @@ func (c *Context) Next() {
 	if c.handlerIndex < 0 {
 		return
 	}
-	s := len(c.handlers)
+	s := int8(len(c.handlers))
 	for c.handlerIndex < s {
 		i := c.handlerIndex
 		c.handlerIndex++
@@ -368,24 +356,20 @@ func (c *Context) Next() {
 	}
 }
 
-func (c *Context) recover() {
-	if err := recover(); err != nil {
-		c.handlePanic(err)
-	}
-}
-
-func (c *Context) handlePanic(err interface{}) {
+func (c *Context) logPanic(err interface{}) {
 	var buf bytes.Buffer
 	buf.Write(debug.Stack())
 	stack := buf.String()
 	errMsg := fmt.Sprintf("%v\n%s", err, stack)
 	c.Errorln(errMsg)
-	c.WriteHeader(http.StatusInternalServerError)
-	c.Text(errMsg)
 }
 
 func (c *Context) execute() {
-	defer c.recover()
-	c.logDebugf("execute: url is %v", c.Request.URL)
+	defer func() {
+		if err := recover(); err != nil {
+			c.WriteHeader(http.StatusInternalServerError)
+			c.logPanic(err)
+		}
+	}()
 	c.Next()
 }
