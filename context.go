@@ -16,11 +16,12 @@ import (
 
 type context struct {
 	*http.Request
-	http.ResponseWriter
-	Application  *Application
-	values       url.Values
-	handlers     []HandlerFunc
-	handlerIndex int8
+	ResponseWriter http.ResponseWriter
+	Application    *Application
+	values         url.Values
+	response       *response
+	handlers       []HandlerFunc
+	handlerIndex   int8
 }
 
 // Context should be http.ResponseWriter
@@ -40,6 +41,7 @@ func getContext(a *Application, w http.ResponseWriter, r *http.Request, h []Hand
 	} else {
 		c = &Context{}
 		c.context = context{}
+		c.context.response = &response{}
 	}
 	c.init(a, w, r, h)
 	c.initEnv()
@@ -54,6 +56,9 @@ func releaseContext(c *Context) {
 	c.values = nil
 	c.handlers = nil
 	c.handlerIndex = 0
+	c.response.ResponseWriter = nil
+	c.response.status = http.StatusOK
+	c.response.wroteHeader = false
 	contextPool.Put(c)
 }
 
@@ -63,10 +68,13 @@ func (c *Context) init(a *Application, w http.ResponseWriter, r *http.Request, h
 	}
 	c.Application = a
 	c.Request = r
-	c.ResponseWriter = w
+	c.ResponseWriter = c.response
 	c.values = nil
 	c.handlers = h
 	c.handlerIndex = 0
+	c.response.ResponseWriter = w
+	c.response.status = http.StatusOK
+	c.response.wroteHeader = false
 }
 
 // Returns whether the request method is POST or not.
@@ -276,6 +284,10 @@ func (c *Context) SetStatusCode(code int) {
 	c.WriteHeader(code)
 }
 
+func (c *Context) GetStatusCode() int {
+	return c.response.status
+}
+
 func (c *Context) Write(msg []byte) (int, error) {
 	return c.ResponseWriter.Write(msg)
 }
@@ -321,27 +333,27 @@ func (c *Context) Redirect(path string, code int) {
 
 // Sets response to HTTP 304 Not Modified.
 func (c *Context) NotModified() {
-	c.ResponseWriter.WriteHeader(http.StatusNotModified)
+	c.WriteHeader(http.StatusNotModified)
 }
 
 // Sets response to HTTP 401 Unauthorized.
 func (c *Context) Unauthorized() {
-	c.ResponseWriter.WriteHeader(http.StatusUnauthorized)
+	c.WriteHeader(http.StatusUnauthorized)
 }
 
 // Sets response to HTTP 403 Forbidden.
 func (c *Context) Forbidden() {
-	c.ResponseWriter.WriteHeader(http.StatusForbidden)
+	c.WriteHeader(http.StatusForbidden)
 }
 
 // Sets response to HTTP 404 Not Found.
 func (c *Context) NotFound() {
-	c.ResponseWriter.WriteHeader(http.StatusNotFound)
+	c.WriteHeader(http.StatusNotFound)
 }
 
 // Sets response to HTTP 500 Internal Server Error.
 func (c *Context) Fail(err interface{}) {
-	c.ResponseWriter.WriteHeader(http.StatusInternalServerError)
+	c.WriteHeader(http.StatusInternalServerError)
 }
 
 func (c *Context) Next() {
@@ -372,4 +384,26 @@ func (c *Context) execute() {
 		}
 	}()
 	c.Next()
+}
+
+type response struct {
+	http.ResponseWriter
+	wroteHeader bool
+	status      int
+}
+
+func (r *response) Write(msg []byte) (int, error) {
+	if !r.wroteHeader {
+		r.WriteHeader(http.StatusOK)
+	}
+	return r.ResponseWriter.Write(msg)
+}
+
+func (r *response) WriteHeader(code int) {
+	if r.wroteHeader {
+		return
+	}
+	r.wroteHeader = true
+	r.status = code
+	r.ResponseWriter.WriteHeader(code)
 }
