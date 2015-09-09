@@ -4,13 +4,15 @@ import (
 	"encoding/json"
 	"errors"
 	"github.com/julienschmidt/httprouter"
+	"github.com/najeira/goutils/nlog"
+	"io"
 	"mime/multipart"
 	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
 	"sync"
-	_ "time"
+	"time"
 )
 
 type context struct {
@@ -369,13 +371,7 @@ func (c *Context) Next() {
 	for c.handlerIndex < s {
 		i := c.handlerIndex
 		c.handlerIndex++
-
-		h := c.handlers[i]
-		//c.verbosef("before handler %v", h)
-		//start := time.Now()
-		h(c)
-		//elapsed := time.Now().Sub(start)
-		//c.verbosef("after handler %v (%v)", h, elapsed)
+		c.handlers[i](c)
 	}
 }
 
@@ -390,14 +386,17 @@ func (c *Context) execute() {
 }
 
 func (c *Context) next() {
-	// wrap ResponseWriter to handle status code.
-	//rw := responseWriter{c.ResponseWriter, http.StatusOK}
-	//c.ResponseWriter = &rw
-
-	//start := time.Now()
-	c.Next()
-	//elapsed := time.Now().Sub(start)
-	//c.debugf("%3d | %12v | %4s %-7s", rw.statusCode, elapsed, c.Method, c.URL.Path)
+	if c.isGenLogEnabled(nlog.Debug) {
+		// wrap ResponseWriter to handle status code.
+		rw := responseWriter{c.ResponseWriter, http.StatusOK}
+		c.ResponseWriter = &rw
+		start := time.Now()
+		c.Next()
+		elapsed := time.Now().Sub(start)
+		c.debugf("%3d | %12v | %4s %-7s", rw.statusCode, elapsed, c.Method, c.URL.Path)
+	} else {
+		c.Next()
+	}
 }
 
 func (c *Context) WithValue(key interface{}, value interface{}) *Context {

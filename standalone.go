@@ -40,6 +40,10 @@ func (c *envContext) release() {
 	// nothing for standalone environment
 }
 
+func (c *envContext) isGenLogEnabled(level int) bool {
+	return generalLogger != nil && generalLogger.Enable(level)
+}
+
 func (c *envContext) appLogf(level int, format string, args ...interface{}) {
 	c.logf(applicationLogger, level, format, args...)
 }

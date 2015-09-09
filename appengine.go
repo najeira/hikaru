@@ -42,6 +42,10 @@ func (c *envContext) release() {
 	c.Context = nil
 }
 
+func (c *envContext) isGenLogEnabled(level int) bool {
+	return level <= generalLogLevel && level != nlog.No
+}
+
 func (c *envContext) appLogf(level int, format string, args ...interface{}) {
 	if level > applicationLogLevel {
 		c.logf(level, format, args...)
