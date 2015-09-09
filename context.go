@@ -310,7 +310,8 @@ func (c *Context) Raw(body []byte, contentType string) (int, error) {
 // Writes a text string.
 // The content type should be "text/plain; charset=utf-8".
 func (c *Context) Text(body string) (int, error) {
-	return c.Raw([]byte(body), "text/plain; charset=utf-8")
+	c.SetHeader("Content-Type", "text/plain; charset=utf-8")
+	return io.WriteString(c.ResponseWriter, body)
 }
 
 func (c *Context) Json(value interface{}) error {
