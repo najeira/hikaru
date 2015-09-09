@@ -9,43 +9,41 @@ import (
 type HandlerFunc func(*Context)
 
 type Module struct {
-	Handlers []HandlerFunc
+	handlers []HandlerFunc
 	prefix   string
 	parent   *Module
 	app      *Application
+	router   *httprouter.Router
 }
 
 func (m *Module) Use(middlewares ...HandlerFunc) {
-	m.Handlers = append(m.Handlers, middlewares...)
+	m.handlers = append(m.handlers, middlewares...)
 }
 
 func (m *Module) Module(component string, handlers ...HandlerFunc) *Module {
 	prefix := path.Join(m.prefix, component)
 	return &Module{
-		Handlers: m.combineHandlers(handlers),
+		handlers: m.combineHandlers(handlers),
 		parent:   m,
 		prefix:   prefix,
-		app:      m.app,
+		router:   m.router,
 	}
 }
 
-func (m *Module) Handle(method, p string, h []HandlerFunc) {
-	pp := path.Join(m.prefix, p)
-	h = m.combineHandlers(h)
-	m.app.Router.Handle(method, pp, func(w http.ResponseWriter, r *http.Request, hp httprouter.Params) {
-		m.Execute(w, r, h, hp)
-	})
+func (m *Module) Handle(method, p string, handlers []HandlerFunc) {
+	var h handlerFuncs = m.combineHandlers(handlers)
+	m.router.Handle(method, path.Join(m.prefix, p), h.handle)
 }
 
-func (m *Module) Execute(w http.ResponseWriter, r *http.Request, h []HandlerFunc, hp httprouter.Params) {
-	c := getContext(m.app, w, r, h)
+type handlerFuncs []HandlerFunc
+
+func (h handlerFuncs) handle(w http.ResponseWriter, r *http.Request, hp httprouter.Params) {
+	c := getContext()
 	defer releaseContext(c)
-	if hp != nil {
-		for _, v := range hp {
-			c.Add(v.Key, v.Value)
-		}
-	}
-	c.logDebugf("hikaru: Request is %v", c.Request)
+
+	c.init(w, r, h)
+	c.addParams(hp)
+	//c.verbosef("hikaru: Request is %v", c.Request)
 	c.execute()
 }
 
@@ -86,10 +84,10 @@ func (m *Module) Static(p, root string) {
 }
 
 func (m *Module) combineHandlers(handlers []HandlerFunc) []HandlerFunc {
-	s := len(m.Handlers) + len(handlers)
+	s := len(m.handlers) + len(handlers)
 	h := make([]HandlerFunc, 0, s)
-	if m.Handlers != nil && len(m.Handlers) > 0 {
-		h = append(h, m.Handlers...)
+	if m.handlers != nil && len(m.handlers) > 0 {
+		h = append(h, m.handlers...)
 	}
 	if handlers != nil && len(handlers) > 0 {
 		h = append(h, handlers...)

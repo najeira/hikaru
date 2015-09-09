@@ -1,27 +1,32 @@
 package hikaru
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
-	"fmt"
+	"github.com/julienschmidt/httprouter"
 	"mime/multipart"
 	"net/http"
 	"net/url"
-	"runtime/debug"
 	"strconv"
 	"strings"
 	"sync"
+	_ "time"
 )
 
 type context struct {
+	envContext
 	*http.Request
 	ResponseWriter http.ResponseWriter
-	Application    *Application
 	values         url.Values
-	response       *response
 	handlers       []HandlerFunc
 	handlerIndex   int8
+}
+
+type Context struct {
+	*context
+	parent *Context
+	key    interface{}
+	value  interface{}
 }
 
 // Context should be http.ResponseWriter
@@ -33,48 +38,44 @@ var (
 )
 
 // Returns the Context.
-func getContext(a *Application, w http.ResponseWriter, r *http.Request, h []HandlerFunc) *Context {
-	var c *Context
+func getContext() *Context {
 	// try getting a Context from a pool.
 	if v := contextPool.Get(); v != nil {
-		c = v.(*Context)
-	} else {
-		c = &Context{}
-		c.context = context{}
-		c.context.response = &response{}
+		return v.(*Context)
 	}
-	c.init(a, w, r, h)
-	c.initEnv()
-	return c
+	return &Context{context: &context{}}
 }
 
 // Release a Context.
 func releaseContext(c *Context) {
-	c.Application = nil
-	c.Request = nil
-	c.ResponseWriter = nil
-	c.values = nil
-	c.handlers = nil
-	c.handlerIndex = 0
-	c.response.ResponseWriter = nil
-	c.response.status = http.StatusOK
-	c.response.wroteHeader = false
+	if c.parent != nil {
+		releaseContext(c.parent)
+	}
+	c.parent = nil
+	c.key = nil
+	c.value = nil
+	c.context.Request = nil
+	c.context.ResponseWriter = nil
+	c.context.values = nil
+	c.context.handlers = nil
+	c.context.handlerIndex = 0
+	c.envContext.release()
 	contextPool.Put(c)
 }
 
-func (c *Context) init(a *Application, w http.ResponseWriter, r *http.Request, h []HandlerFunc) {
-	if len(h) >= 128 {
-		panic("handlers shold be less then 128")
+func (c *Context) init(w http.ResponseWriter, r *http.Request, h []HandlerFunc) {
+	if len(h) >= 127 {
+		panic("handlers shold be less then 127")
 	}
-	c.Application = a
-	c.Request = r
-	c.ResponseWriter = c.response
-	c.values = nil
-	c.handlers = h
-	c.handlerIndex = 0
-	c.response.ResponseWriter = w
-	c.response.status = http.StatusOK
-	c.response.wroteHeader = false
+	c.parent = nil
+	c.key = nil
+	c.value = nil
+	c.context.Request = r
+	c.context.ResponseWriter = w
+	c.context.values = nil
+	c.context.handlers = h
+	c.context.handlerIndex = 0
+	c.envContext.init()
 }
 
 // Returns whether the request method is POST or not.
@@ -92,7 +93,7 @@ func (c *Context) IsAjax() bool {
 }
 
 func (c *Context) IsSecure() bool {
-	//HTTP_X_FORWARDED_SSL, HTTP_X_FORWARDED_SCHEME, HTTP_X_FORWARDED_PROTO
+	// TODO: HTTP_X_FORWARDED_SSL, HTTP_X_FORWARDED_SCHEME, HTTP_X_FORWARDED_PROTO
 	return c.Request.URL.Scheme == "https"
 }
 
@@ -251,6 +252,14 @@ func (c *Context) Update(v url.Values) {
 	}
 }
 
+func (c *Context) addParams(params httprouter.Params) {
+	if params != nil {
+		for _, v := range params {
+			c.Add(v.Key, v.Value)
+		}
+	}
+}
+
 // Returns response headers.
 func (c *Context) Header() http.Header {
 	return c.ResponseWriter.Header()
@@ -282,10 +291,6 @@ func (c *Context) WriteHeader(code int) {
 
 func (c *Context) SetStatusCode(code int) {
 	c.WriteHeader(code)
-}
-
-func (c *Context) GetStatusCode() int {
-	return c.response.status
 }
 
 func (c *Context) Write(msg []byte) (int, error) {
@@ -364,16 +369,14 @@ func (c *Context) Next() {
 	for c.handlerIndex < s {
 		i := c.handlerIndex
 		c.handlerIndex++
-		c.handlers[i](c)
-	}
-}
 
-func (c *Context) logPanic(err interface{}) {
-	var buf bytes.Buffer
-	buf.Write(debug.Stack())
-	stack := buf.String()
-	errMsg := fmt.Sprintf("%v\n%s", err, stack)
-	c.Errorln(errMsg)
+		h := c.handlers[i]
+		//c.verbosef("before handler %v", h)
+		//start := time.Now()
+		h(c)
+		//elapsed := time.Now().Sub(start)
+		//c.verbosef("after handler %v (%v)", h, elapsed)
+	}
 }
 
 func (c *Context) execute() {
@@ -383,27 +386,46 @@ func (c *Context) execute() {
 			c.logPanic(err)
 		}
 	}()
+	c.next()
+}
+
+func (c *Context) next() {
+	// wrap ResponseWriter to handle status code.
+	//rw := responseWriter{c.ResponseWriter, http.StatusOK}
+	//c.ResponseWriter = &rw
+
+	//start := time.Now()
 	c.Next()
+	//elapsed := time.Now().Sub(start)
+	//c.debugf("%3d | %12v | %4s %-7s", rw.statusCode, elapsed, c.Method, c.URL.Path)
 }
 
-type response struct {
+func (c *Context) WithValue(key interface{}, value interface{}) *Context {
+	nc := getContext()
+	nc.context = c.context
+	nc.parent = c
+	nc.key = c.key
+	nc.value = c.value
+	return nc
+}
+
+func (c *Context) Value(key interface{}) interface{} {
+	if c.key == key {
+		return c.value
+	} else if c.parent != nil {
+		return c.parent.Value(key)
+	}
+	return nil
+}
+
+type responseWriter struct {
 	http.ResponseWriter
-	wroteHeader bool
-	status      int
+	statusCode int
 }
 
-func (r *response) Write(msg []byte) (int, error) {
-	if !r.wroteHeader {
-		r.WriteHeader(http.StatusOK)
-	}
-	return r.ResponseWriter.Write(msg)
-}
+var _ http.ResponseWriter = (*responseWriter)(nil)
 
-func (r *response) WriteHeader(code int) {
-	if r.wroteHeader {
-		return
-	}
-	r.wroteHeader = true
-	r.status = code
+func (r *responseWriter) WriteHeader(code int) {
+	r.statusCode = code
 	r.ResponseWriter.WriteHeader(code)
 }
