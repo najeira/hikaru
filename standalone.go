@@ -50,7 +50,3 @@ type envContext struct {
 func (c *envContext) init(r *http.Request) {
 	// nothing for standalone environment
 }
-
-func (c *envContext) release() {
-	// nothing for standalone environment
-}

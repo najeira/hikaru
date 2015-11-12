@@ -7,7 +7,7 @@ import (
 	"net/http"
 )
 
-var logLevelAppEngineLoggerMap = map[int](func(appengine.Context, int, string, ...interface{})){
+var logLevelAppEngineLoggerMap = map[int](func(appengine.Context, string, ...interface{})){
 	LogDebug:    appengine.Context.Debugf,
 	LogInfo:     appengine.Context.Infof,
 	LogWarn:     appengine.Context.Warningf,
@@ -35,7 +35,7 @@ func (l *appengineLogger) SetLevel(level int) {
 func (l *appengineLogger) Printf(c *Context, level int, format string, args ...interface{}) {
 	if l.V(level) {
 		if f, ok := logLevelAppEngineLoggerMap[level]; ok {
-			f(c.Context, format, args...)
+			f(c.AC(), format, args...)
 		}
 	}
 }
@@ -45,9 +45,13 @@ type envContext struct {
 }
 
 func (c *envContext) init(r *http.Request) {
-	c.Context = appengine.NewContext(r)
+	if r != nil {
+		c.Context = appengine.NewContext(r)
+	} else {
+		c.Context = nil
+	}
 }
 
-func (c *envContext) release() {
-	c.Context = nil
+func (c *Context) AC() appengine.Context {
+	return c.envContext.Context
 }

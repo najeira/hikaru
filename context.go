@@ -13,8 +13,6 @@ import (
 )
 
 type Context struct {
-	*envContext
-
 	// request
 	*http.Request
 	params httprouter.Params
@@ -23,6 +21,10 @@ type Context struct {
 
 	// response
 	Response *Response
+
+	// values
+	values     map[interface{}]interface{}
+	envContext *envContext
 }
 
 var (
@@ -49,7 +51,7 @@ func getContext(w http.ResponseWriter, r *http.Request, params httprouter.Params
 // Release a Context.
 func releaseContext(c *Context) {
 	c.init(nil, nil, nil)
-	c.envContext.release()
+	c.envContext.init(nil)
 	contextPool.Put(c)
 }
 
@@ -59,6 +61,7 @@ func (c *Context) init(w http.ResponseWriter, r *http.Request, params httprouter
 	c.query = nil
 	c.form = nil
 	c.Response.init(w, r)
+	c.values = nil
 }
 
 // Returns whether the request method is POST or not.
@@ -231,4 +234,18 @@ func (c *Context) TryBool(key string) (bool, error) {
 		return false, err
 	}
 	return strconv.ParseBool(s)
+}
+
+func (c *Context) Set(key, value interface{}) {
+	if c.values == nil {
+		c.values = make(map[interface{}]interface{})
+	}
+	c.values[key] = value
+}
+
+func (c *Context) Value(key interface{}) interface{} {
+	if c.values == nil {
+		return nil
+	}
+	return c.values[key]
 }
