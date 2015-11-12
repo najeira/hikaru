@@ -1,38 +1,29 @@
 package hikaru
 
 import (
-	"encoding/json"
 	"errors"
-	"github.com/julienschmidt/httprouter"
-	"github.com/najeira/goutils/nlog"
-	"io"
 	"mime/multipart"
 	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
 	"sync"
-	"time"
+
+	"github.com/julienschmidt/httprouter"
 )
 
-type context struct {
-	envContext
-	*http.Request
-	ResponseWriter http.ResponseWriter
-	values         url.Values
-	handlers       []HandlerFunc
-	handlerIndex   int8
-}
-
 type Context struct {
-	*context
-	parent *Context
-	key    interface{}
-	value  interface{}
-}
+	*envContext
 
-// Context should be http.ResponseWriter
-var _ http.ResponseWriter = (*Context)(nil)
+	// request
+	*http.Request
+	params httprouter.Params
+	query  url.Values
+	form   url.Values
+
+	// response
+	Response *Response
+}
 
 var (
 	ErrKeyNotExist = errors.New("not exist")
@@ -40,44 +31,34 @@ var (
 )
 
 // Returns the Context.
-func getContext() *Context {
-	// try getting a Context from a pool.
+func getContext(w http.ResponseWriter, r *http.Request, params httprouter.Params) *Context {
+	var c *Context = nil
 	if v := contextPool.Get(); v != nil {
-		return v.(*Context)
+		c = v.(*Context)
+	} else {
+		c = &Context{
+			envContext: &envContext{},
+			Response:   &Response{},
+		}
 	}
-	return &Context{context: &context{}}
+	c.envContext.init(r)
+	c.init(w, r, params)
+	return c
 }
 
 // Release a Context.
 func releaseContext(c *Context) {
-	if c.parent != nil {
-		releaseContext(c.parent)
-	}
-	c.parent = nil
-	c.key = nil
-	c.value = nil
-	c.context.Request = nil
-	c.context.ResponseWriter = nil
-	c.context.values = nil
-	c.context.handlers = nil
-	c.context.handlerIndex = 0
+	c.init(nil, nil, nil)
 	c.envContext.release()
 	contextPool.Put(c)
 }
 
-func (c *Context) init(w http.ResponseWriter, r *http.Request, h []HandlerFunc) {
-	if len(h) >= 127 {
-		panic("handlers shold be less then 127")
-	}
-	c.parent = nil
-	c.key = nil
-	c.value = nil
-	c.context.Request = r
-	c.context.ResponseWriter = w
-	c.context.values = nil
-	c.context.handlers = h
-	c.context.handlerIndex = 0
-	c.envContext.init()
+func (c *Context) init(w http.ResponseWriter, r *http.Request, params httprouter.Params) {
+	c.Request = r
+	c.params = params
+	c.query = nil
+	c.form = nil
+	c.Response.init(w, r)
 }
 
 // Returns whether the request method is POST or not.
@@ -138,23 +119,31 @@ func (c *Context) ForwardedAddrs() []string {
 	return rets
 }
 
-func (c *Context) Values() url.Values {
-	if c.values == nil {
-		c.Request.ParseForm()
-		c.values = c.Request.Form
+func (c *Context) QueryValues() url.Values {
+	if c.query == nil {
+		c.query = c.Request.URL.Query()
 	}
-	return c.values
+	return c.query
+}
+
+func (c *Context) Query(key string) string {
+	return c.QueryValues().Get(key)
+}
+
+func (c *Context) FormValues() url.Values {
+	if c.form == nil {
+		c.Request.ParseForm()
+		c.form = c.Request.Form
+	}
+	return c.form
+}
+
+func (c *Context) Form(key string) string {
+	return c.FormValues().Get(key)
 }
 
 func (c *Context) File(key string) (multipart.File, *multipart.FileHeader, error) {
 	return c.Request.FormFile(key)
-}
-
-// Has returns whether the request has the given key in the route values and
-// the query.
-func (c *Context) Has(key string) bool {
-	_, ok := c.Values()[key]
-	return ok
 }
 
 // Get gets the first value associated with the given key.
@@ -169,13 +158,29 @@ func (c *Context) String(key string, failover string) string {
 	return ret
 }
 
+func (c *Context) getString(key string) (string, bool) {
+	if c.params != nil {
+		s := c.params.ByName(key)
+		if s != "" {
+			return s, true
+		}
+	}
+	if ss, ok := c.QueryValues()[key]; ok && len(ss) > 0 {
+		return ss[0], true
+	}
+	if ss, ok := c.FormValues()[key]; ok && len(ss) > 0 {
+		return ss[0], true
+	}
+	return "", false
+}
+
 // Get gets the first value associated with the given key.
 // If there are no values associated with the key,
 // Get returns the ErrKeyNotExist.
 func (c *Context) TryString(key string) (string, error) {
-	ss, ok := c.Values()[key]
-	if ok && ss != nil && len(ss) > 0 {
-		return ss[0], nil
+	s, ok := c.getString(key)
+	if ok {
+		return s, nil
 	}
 	return "", ErrKeyNotExist
 }
@@ -226,206 +231,4 @@ func (c *Context) TryBool(key string) (bool, error) {
 		return false, err
 	}
 	return strconv.ParseBool(s)
-}
-
-// Set sets the key to value. It replaces any existing values.
-func (c *Context) Set(key, value string) {
-	c.Values()[key] = []string{value}
-}
-
-// Add adds the key to value. It appends to any existing values associated
-// with key.
-func (c *Context) Add(key, value string) {
-	c.Values()[key] = append(c.Values()[key], value)
-}
-
-// Del deletes the values associated with key.
-func (c *Context) Del(key string) {
-	delete(c.Values(), key)
-}
-
-func (c *Context) Update(v url.Values) {
-	for key, ss := range v {
-		if ss != nil && len(ss) > 0 {
-			for _, s := range ss {
-				c.Values().Add(key, s)
-			}
-		}
-	}
-}
-
-func (c *Context) addParams(params httprouter.Params) {
-	if params != nil {
-		for _, v := range params {
-			c.Add(v.Key, v.Value)
-		}
-	}
-}
-
-// Returns response headers.
-func (c *Context) Header() http.Header {
-	return c.ResponseWriter.Header()
-}
-
-// GetHeader gets a response header.
-func (c *Context) GetHeader(key string) string {
-	return c.ResponseWriter.Header().Get(key)
-}
-
-// SetHeader sets a response header.
-func (c *Context) SetHeader(key, value string) {
-	c.ResponseWriter.Header().Set(key, value)
-}
-
-// Adds a response header.
-func (c *Context) AddHeader(key, value string) {
-	c.ResponseWriter.Header().Add(key, value)
-}
-
-// Adds a cookie header.
-func (c *Context) SetCookie(cookie *http.Cookie) {
-	c.ResponseWriter.Header().Set("Set-Cookie", cookie.String())
-}
-
-func (c *Context) WriteHeader(code int) {
-	c.ResponseWriter.WriteHeader(code)
-}
-
-func (c *Context) SetStatusCode(code int) {
-	c.WriteHeader(code)
-}
-
-func (c *Context) Write(msg []byte) (int, error) {
-	return c.ResponseWriter.Write(msg)
-}
-
-// Writes raw bytes and content type.
-func (c *Context) Raw(body []byte, contentType string) (int, error) {
-	if contentType != "" {
-		c.SetHeader("Content-Type", contentType)
-	}
-	return c.ResponseWriter.Write(body)
-}
-
-// Writes a text string.
-// The content type should be "text/plain; charset=utf-8".
-func (c *Context) Text(body string) (int, error) {
-	c.SetHeader("Content-Type", "text/plain; charset=utf-8")
-	return io.WriteString(c.ResponseWriter, body)
-}
-
-func (c *Context) Json(value interface{}) error {
-	c.SetHeader("Content-Type", "application/json; charset=utf-8")
-	e := json.NewEncoder(c.ResponseWriter)
-	if err := e.Encode(value); err != nil {
-		return err
-	}
-	return nil
-}
-
-// Sets response to HTTP 302 Found.
-func (c *Context) RedirectFound(path string) {
-	c.Redirect(path, http.StatusFound)
-}
-
-// Sets response to HTTP 301 Moved Permanently.
-func (c *Context) RedirectMoved(path string) {
-	c.Redirect(path, http.StatusMovedPermanently)
-}
-
-// Sets response to HTTP 3xx.
-func (c *Context) Redirect(path string, code int) {
-	c.SetHeader("Location", path)
-	http.Redirect(c.ResponseWriter, c.Request, path, code)
-}
-
-// Sets response to HTTP 304 Not Modified.
-func (c *Context) NotModified() {
-	c.WriteHeader(http.StatusNotModified)
-}
-
-// Sets response to HTTP 401 Unauthorized.
-func (c *Context) Unauthorized() {
-	c.WriteHeader(http.StatusUnauthorized)
-}
-
-// Sets response to HTTP 403 Forbidden.
-func (c *Context) Forbidden() {
-	c.WriteHeader(http.StatusForbidden)
-}
-
-// Sets response to HTTP 404 Not Found.
-func (c *Context) NotFound() {
-	c.WriteHeader(http.StatusNotFound)
-}
-
-// Sets response to HTTP 500 Internal Server Error.
-func (c *Context) Fail(err interface{}) {
-	c.WriteHeader(http.StatusInternalServerError)
-}
-
-func (c *Context) Next() {
-	if c.handlerIndex < 0 {
-		return
-	}
-	s := int8(len(c.handlers))
-	for c.handlerIndex < s {
-		i := c.handlerIndex
-		c.handlerIndex++
-		c.handlers[i](c)
-	}
-}
-
-func (c *Context) execute() {
-	defer func() {
-		if err := recover(); err != nil {
-			c.WriteHeader(http.StatusInternalServerError)
-			c.logPanic(err)
-		}
-	}()
-	c.next()
-}
-
-func (c *Context) next() {
-	if c.isGenLogEnabled(nlog.Debug) {
-		// wrap ResponseWriter to handle status code.
-		rw := responseWriter{c.ResponseWriter, http.StatusOK}
-		c.ResponseWriter = &rw
-		start := time.Now()
-		c.Next()
-		elapsed := time.Now().Sub(start)
-		c.debugf("%3d | %12v | %4s %-7s", rw.statusCode, elapsed, c.Method, c.URL.Path)
-	} else {
-		c.Next()
-	}
-}
-
-func (c *Context) WithValue(key interface{}, value interface{}) *Context {
-	nc := getContext()
-	nc.context = c.context
-	nc.parent = c
-	nc.key = c.key
-	nc.value = c.value
-	return nc
-}
-
-func (c *Context) Value(key interface{}) interface{} {
-	if c.key == key {
-		return c.value
-	} else if c.parent != nil {
-		return c.parent.Value(key)
-	}
-	return nil
-}
-
-type responseWriter struct {
-	http.ResponseWriter
-	statusCode int
-}
-
-var _ http.ResponseWriter = (*responseWriter)(nil)
-
-func (r *responseWriter) WriteHeader(code int) {
-	r.statusCode = code
-	r.ResponseWriter.WriteHeader(code)
 }

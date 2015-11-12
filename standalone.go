@@ -3,60 +3,54 @@
 package hikaru
 
 import (
-	"github.com/najeira/goutils/nlog"
+	"fmt"
+	"log"
+	"net/http"
 )
 
-var (
-	applicationLogger nlog.Logger
-	generalLogger     nlog.Logger
-)
-
-func SetApplicationLogger(logger nlog.Logger) {
-	applicationLogger = logger
+var logLevelNameMap = map[int]string{
+	LogCritical: "CRITICAL",
+	LogError:    "ERROR",
+	LogWarn:     "WARN",
+	LogInfo:     "INFO",
+	LogDebug:    "DEBUG",
 }
 
-func SetGeneralLogger(logger nlog.Logger) {
-	generalLogger = logger
+func init() {
+	appLogger = &defaultLogger{level: LogInfo}
+	genLogger = &defaultLogger{level: LogWarn}
 }
 
-var nlogLogLevelPrinterMap = map[int](func(nlog.Logger, string, ...interface{})){
-	nlog.Critical: nlog.Logger.Criticalf,
-	nlog.Error:    nlog.Logger.Errorf,
-	nlog.Warn:     nlog.Logger.Warnf,
-	nlog.Notice:   nlog.Logger.Noticef,
-	nlog.Info:     nlog.Logger.Infof,
-	nlog.Debug:    nlog.Logger.Debugf,
-	nlog.Verbose:  nlog.Logger.Verbosef,
+type defaultLogger struct {
+	level int
+}
+
+func (l *defaultLogger) V(level int) bool {
+	return l.level <= level && level > LogNo
+}
+
+func (l *defaultLogger) SetLevel(level int) {
+	l.level = level
+}
+
+func (l *defaultLogger) Printf(c *Context, level int, format string, args ...interface{}) {
+	if l.V(level) {
+		if name, ok := logLevelNameMap[level]; ok {
+			format2 := fmt.Sprintf("[%s] %s", name, format)
+			log.Printf(format2, args...)
+		} else {
+			log.Printf(format, args...)
+		}
+	}
 }
 
 type envContext struct {
 }
 
-func (c *envContext) init() {
+func (c *envContext) init(r *http.Request) {
 	// nothing for standalone environment
 }
 
 func (c *envContext) release() {
 	// nothing for standalone environment
-}
-
-func (c *envContext) isGenLogEnabled(level int) bool {
-	return generalLogger != nil && generalLogger.Enable(level)
-}
-
-func (c *envContext) appLogf(level int, format string, args ...interface{}) {
-	c.logf(applicationLogger, level, format, args...)
-}
-
-func (c *envContext) genLogf(level int, format string, args ...interface{}) {
-	c.logf(generalLogger, level, format, args...)
-}
-
-func (c *envContext) logf(logger nlog.Logger, level int, format string, args ...interface{}) {
-	if logger != nil {
-		f, ok := nlogLogLevelPrinterMap[level]
-		if ok {
-			f(logger, format, args...)
-		}
-	}
 }

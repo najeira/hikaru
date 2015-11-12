@@ -1,70 +1,97 @@
 package hikaru
 
 import (
-	"bytes"
-	"github.com/najeira/goutils/nlog"
 	"runtime/debug"
 )
 
-func (c *Context) logPanic(err interface{}) {
-	var buf bytes.Buffer
-	buf.Write(debug.Stack())
-	stack := buf.String()
-	c.errorf("%v\n%s", err, stack)
+const (
+	LogNo = iota
+	LogCritical
+	LogError
+	LogWarn
+	LogInfo
+	LogDebug
+)
+
+var (
+	appLogger Logger
+	genLogger Logger
+)
+
+type Logger interface {
+	V(int) bool
+	SetLevel(int)
+	Printf(c *Context, level int, format string, args ...interface{})
 }
 
-func (c *Context) verbosef(format string, args ...interface{}) {
-	c.genLogf(nlog.Verbose, format, args...)
+func SetAppLogger(logger Logger) {
+	appLogger = logger
+}
+
+func SetGenLogger(logger Logger) {
+	genLogger = logger
 }
 
 func (c *Context) debugf(format string, args ...interface{}) {
-	c.genLogf(nlog.Debug, format, args...)
+	if genLogger != nil {
+		genLogger.Printf(c, LogDebug, format, args...)
+	}
 }
 
 func (c *Context) infof(format string, args ...interface{}) {
-	c.genLogf(nlog.Info, format, args...)
-}
-
-func (c *Context) noticef(format string, args ...interface{}) {
-	c.genLogf(nlog.Notice, format, args...)
+	if genLogger != nil {
+		genLogger.Printf(c, LogInfo, format, args...)
+	}
 }
 
 func (c *Context) warningf(format string, args ...interface{}) {
-	c.genLogf(nlog.Warn, format, args...)
+	if genLogger != nil {
+		genLogger.Printf(c, LogWarn, format, args...)
+	}
 }
 
 func (c *Context) errorf(format string, args ...interface{}) {
-	c.genLogf(nlog.Error, format, args...)
+	if genLogger != nil {
+		genLogger.Printf(c, LogError, format, args...)
+	}
 }
 
 func (c *Context) criticalf(format string, args ...interface{}) {
-	c.genLogf(nlog.Critical, format, args...)
+	if genLogger != nil {
+		genLogger.Printf(c, LogCritical, format, args...)
+	}
 }
 
-func (c *Context) Verbosef(format string, args ...interface{}) {
-	c.appLogf(nlog.Verbose, format, args...)
+func (c *Context) logPanic(err interface{}) {
+	c.errorf("%v\n%s", err, string(debug.Stack()))
 }
 
 func (c *Context) Debugf(format string, args ...interface{}) {
-	c.appLogf(nlog.Debug, format, args...)
+	if appLogger != nil {
+		appLogger.Printf(c, LogDebug, format, args...)
+	}
 }
 
 func (c *Context) Infof(format string, args ...interface{}) {
-	c.appLogf(nlog.Info, format, args...)
-}
-
-func (c *Context) Noticef(format string, args ...interface{}) {
-	c.appLogf(nlog.Notice, format, args...)
+	if appLogger != nil {
+		appLogger.Printf(c, LogInfo, format, args...)
+	}
 }
 
 func (c *Context) Warningf(format string, args ...interface{}) {
-	c.appLogf(nlog.Warn, format, args...)
+	if appLogger != nil {
+		appLogger.Printf(c, LogWarn, format, args...)
+	}
 }
 
 func (c *Context) Errorf(format string, args ...interface{}) {
-	c.appLogf(nlog.Error, format, args...)
+	if appLogger != nil {
+		appLogger.Printf(c, LogError, format, args...)
+	}
 }
 
 func (c *Context) Criticalf(format string, args ...interface{}) {
-	c.appLogf(nlog.Critical, format, args...)
+	if appLogger != nil {
+		appLogger.Printf(c, LogCritical, format, args...)
+	}
 }
