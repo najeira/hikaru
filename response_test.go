@@ -6,14 +6,14 @@ import (
 	"testing"
 )
 
-func responseObjects() (*httptest.ResponseRecorder, *http.Request, *Response, error) {
+func responseObjects() (*httptest.ResponseRecorder, *http.Request, *Context, error) {
 	wr := httptest.NewRecorder()
 	req, err := http.NewRequest("GET", "http://example.com/", nil)
 	if err != nil {
 		return wr, req, nil, err
 	}
-	res := &Response{}
-	res.init(wr, req)
+	res := &Context{}
+	res.init(wr, req, nil, nil)
 	return wr, req, res, err
 }
 
@@ -38,7 +38,7 @@ func TestResponse(t *testing.T) {
 	if res.ResponseWriter != wr {
 		t.Errorf("ResponseWriter invalid")
 	}
-	if res.request != req {
+	if res.Request != req {
 		t.Errorf("request invalid")
 	}
 }

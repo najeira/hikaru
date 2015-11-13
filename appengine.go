@@ -4,7 +4,6 @@ package hikaru
 
 import (
 	"appengine"
-	"net/http"
 )
 
 var logLevelAppEngineLoggerMap = map[int](func(appengine.Context, string, ...interface{})){
@@ -15,13 +14,12 @@ var logLevelAppEngineLoggerMap = map[int](func(appengine.Context, string, ...int
 	LogCritical: appengine.Context.Criticalf,
 }
 
-func init() {
-	appLogger = &appengineLogger{level: LogDebug}
-	genLogger = &appengineLogger{level: LogDebug}
-}
-
 type appengineLogger struct {
 	level int
+}
+
+func newDefaultLogger(level int) Logger {
+	return &appengineLogger{level: level}
 }
 
 func (l *appengineLogger) V(level int) bool {
@@ -40,18 +38,10 @@ func (l *appengineLogger) Printf(c *Context, level int, format string, args ...i
 	}
 }
 
-type envContext struct {
-	appengine.Context
-}
-
-func (c *envContext) init(r *http.Request) {
-	if r != nil {
-		c.Context = appengine.NewContext(r)
-	} else {
-		c.Context = nil
-	}
+func (c *Context) initEnv() {
+	c.appengineContext = appengine.NewContext(c.Request)
 }
 
 func (c *Context) AC() appengine.Context {
-	return c.envContext.Context
+	return c.appengineContext.(appengine.Context)
 }

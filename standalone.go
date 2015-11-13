@@ -3,26 +3,23 @@
 package hikaru
 
 import (
-	"fmt"
 	"log"
-	"net/http"
 )
 
 var logLevelNameMap = map[int]string{
-	LogCritical: "CRITICAL",
-	LogError:    "ERROR",
-	LogWarn:     "WARN",
-	LogInfo:     "INFO",
-	LogDebug:    "DEBUG",
-}
-
-func init() {
-	appLogger = &defaultLogger{level: LogInfo}
-	genLogger = &defaultLogger{level: LogWarn}
+	LogDebug:    "[DEBUG]",
+	LogInfo:     "[INFO] ",
+	LogWarn:     "[WARN] ",
+	LogError:    "[ERROR]",
+	LogCritical: "[CRIT] ",
 }
 
 type defaultLogger struct {
 	level int
+}
+
+func newDefaultLogger(level int) Logger {
+	return &defaultLogger{level: level}
 }
 
 func (l *defaultLogger) V(level int) bool {
@@ -36,17 +33,13 @@ func (l *defaultLogger) SetLevel(level int) {
 func (l *defaultLogger) Printf(c *Context, level int, format string, args ...interface{}) {
 	if l.V(level) {
 		if name, ok := logLevelNameMap[level]; ok {
-			format2 := fmt.Sprintf("[%s] %s", name, format)
-			log.Printf(format2, args...)
+			log.Printf(name+format, args...)
 		} else {
 			log.Printf(format, args...)
 		}
 	}
 }
 
-type envContext struct {
-}
-
-func (c *envContext) init(r *http.Request) {
+func (c *Context) initEnv() {
 	// nothing for standalone environment
 }

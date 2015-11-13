@@ -13,6 +13,7 @@ type Module struct {
 	parent *Module
 	prefix string
 	router *httprouter.Router
+	logger *logger
 }
 
 func NewModule(prefix string) *Module {
@@ -20,6 +21,10 @@ func NewModule(prefix string) *Module {
 		parent: nil,
 		prefix: prefix,
 		router: httprouter.New(),
+		logger: &logger{
+			gen: newDefaultLogger(LogWarn),
+			app: newDefaultLogger(LogInfo),
+		},
 	}
 }
 
@@ -33,17 +38,18 @@ func (m *Module) Module(component string, handler HandlerFunc) *Module {
 		parent: m,
 		prefix: prefix,
 		router: m.router,
+		logger: m.logger,
 	}
 }
 
 func (m *Module) Handle(method, p string, handler HandlerFunc) {
-	h := wrapHandlerFunc(handler)
+	h := m.wrapHandlerFunc(handler)
 	m.router.Handle(method, path.Join(m.prefix, p), h)
 }
 
-func wrapHandlerFunc(handler HandlerFunc) httprouter.Handle {
+func (m *Module) wrapHandlerFunc(handler HandlerFunc) httprouter.Handle {
 	return func(w http.ResponseWriter, r *http.Request, hp httprouter.Params) {
-		c := getContext(w, r, hp)
+		c := getContext(w, r, hp, m.logger)
 		defer releaseContext(c)
 		//c.verbosef("hikaru: Request is %v", c.Request)
 		handler(c)
@@ -76,12 +82,20 @@ func (m *Module) Static(p, root string) {
 	m.GET(p, func(c *Context) {
 		fp, err := c.TryString("filepath")
 		if err != nil {
-			c.Response.Fail(err)
+			c.Fail(err)
 		} else {
 			original := c.Request.URL.Path
 			c.Request.URL.Path = fp
-			fileServer.ServeHTTP(c.Response, c.Request)
+			fileServer.ServeHTTP(c.ResponseWriter, c.Request)
 			c.Request.URL.Path = original
 		}
 	})
+}
+
+func (m *Module) SetGenLogger(logger Logger) {
+	m.logger.gen = logger
+}
+
+func (m *Module) SetAppLogger(logger Logger) {
+	m.logger.app = logger
 }

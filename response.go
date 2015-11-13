@@ -8,111 +8,93 @@ import (
 	"net/http"
 )
 
-type Response struct {
-	http.ResponseWriter
-	http.Hijacker
-	http.Flusher
-	http.CloseNotifier
-
-	request *http.Request
-	status  int
-	size    int
-}
-
 var (
-	_ http.ResponseWriter = (*Response)(nil)
-	_ http.Hijacker       = (*Response)(nil)
-	_ http.Flusher        = (*Response)(nil)
-	_ http.CloseNotifier  = (*Response)(nil)
+	_ http.ResponseWriter = (*Context)(nil)
+	_ http.Hijacker       = (*Context)(nil)
+	_ http.Flusher        = (*Context)(nil)
+	_ http.CloseNotifier  = (*Context)(nil)
 )
 
-func (r *Response) init(w http.ResponseWriter, req *http.Request) {
-	r.ResponseWriter = w
-	r.request = req
-	r.status = http.StatusOK
-	r.size = -1
-}
-
 // Returns response headers.
-func (r *Response) Header() http.Header {
-	return r.ResponseWriter.Header()
+func (c *Context) Header() http.Header {
+	return c.ResponseWriter.Header()
 }
 
 // GetHeader gets a response header.
-func (r *Response) GetHeader(key string) string {
-	return r.Header().Get(key)
+func (c *Context) GetHeader(key string) string {
+	return c.Header().Get(key)
 }
 
 // SetHeader sets a response header.
-func (r *Response) SetHeader(key, value string) {
-	r.Header().Set(key, value)
+func (c *Context) SetHeader(key, value string) {
+	c.Header().Set(key, value)
 }
 
 // Adds a response header.
-func (r *Response) AddHeader(key, value string) {
-	r.Header().Add(key, value)
+func (c *Context) AddHeader(key, value string) {
+	c.Header().Add(key, value)
 }
 
 // Adds a cookie header.
-func (r *Response) SetCookie(cookie *http.Cookie) {
-	r.Header().Set("Set-Cookie", cookie.String())
+func (c *Context) SetCookie(cookie *http.Cookie) {
+	c.Header().Set("Set-Cookie", cookie.String())
 }
 
-func (r *Response) Status() int {
-	return r.status
+func (c *Context) Status() int {
+	return c.status
 }
 
-func (r *Response) Size() int {
-	return r.size
+func (c *Context) Size() int {
+	return c.size
 }
 
-func (r *Response) Written() bool {
-	return r.size >= 0
+func (c *Context) Written() bool {
+	return c.size >= 0
 }
 
-func (r *Response) WriteHeader(code int) {
-	if code > 0 && r.status != code {
-		r.status = code
+func (c *Context) WriteHeader(code int) {
+	if code > 0 && c.status != code {
+		c.status = code
 	}
 }
 
-func (r *Response) WriteHeaderAndSend(code int) {
-	r.WriteHeader(code)
-	r.writeHeaderIfNotSent()
+func (c *Context) WriteHeaderAndSend(code int) {
+	c.WriteHeader(code)
+	c.writeHeaderIfNotSent()
 }
 
-func (r *Response) writeHeaderIfNotSent() {
-	if !r.Written() {
-		r.size = 0
-		r.ResponseWriter.WriteHeader(r.status)
+func (c *Context) writeHeaderIfNotSent() {
+	if !c.Written() {
+		c.size = 0
+		c.ResponseWriter.WriteHeader(c.status)
 	}
 }
 
-func (r *Response) Write(msg []byte) (int, error) {
-	r.writeHeaderIfNotSent()
-	n, err := r.ResponseWriter.Write(msg)
-	r.size += n
+func (c *Context) Write(msg []byte) (int, error) {
+	c.writeHeaderIfNotSent()
+	n, err := c.ResponseWriter.Write(msg)
+	c.size += n
 	return n, err
 }
 
 // Writes raw bytes and content type.
-func (r *Response) Raw(body []byte, contentType string) (int, error) {
+func (c *Context) Raw(body []byte, contentType string) (int, error) {
 	if contentType != "" {
-		r.SetHeader("Content-Type", contentType)
+		c.SetHeader("Content-Type", contentType)
 	}
-	return r.Write(body)
+	return c.Write(body)
 }
 
 // Writes a text string.
 // The content type should be "text/plain; charset=utf-8".
-func (r *Response) Text(body string) (int, error) {
-	r.SetHeader("Content-Type", "text/plain; charset=utf-8")
-	return io.WriteString(r, body)
+func (c *Context) Text(body string) (int, error) {
+	c.SetHeader("Content-Type", "text/plain; charset=utf-8")
+	return io.WriteString(c, body)
 }
 
-func (r *Response) Json(value interface{}) error {
-	r.SetHeader("Content-Type", "application/json; charset=utf-8")
-	e := json.NewEncoder(r)
+func (c *Context) Json(value interface{}) error {
+	c.SetHeader("Content-Type", "application/json; charset=utf-8")
+	e := json.NewEncoder(c)
 	if err := e.Encode(value); err != nil {
 		return err
 	}
@@ -120,52 +102,52 @@ func (r *Response) Json(value interface{}) error {
 }
 
 // Sets response to HTTP 3xx.
-func (r *Response) Redirect(path string, code int) {
-	r.SetHeader("Location", path)
-	http.Redirect(r, r.request, path, code)
-	r.writeHeaderIfNotSent()
+func (c *Context) Redirect(path string, code int) {
+	c.SetHeader("Location", path)
+	http.Redirect(c, c.Request, path, code)
+	c.writeHeaderIfNotSent()
 }
 
 // Sets response to HTTP 304 Not Modified.
-func (r *Response) NotModified() {
-	r.WriteHeaderAndSend(http.StatusNotModified)
+func (c *Context) NotModified() {
+	c.WriteHeaderAndSend(http.StatusNotModified)
 }
 
 // Sets response to HTTP 401 Unauthorized.
-func (r *Response) Unauthorized() {
-	r.WriteHeaderAndSend(http.StatusUnauthorized)
+func (c *Context) Unauthorized() {
+	c.WriteHeaderAndSend(http.StatusUnauthorized)
 }
 
 // Sets response to HTTP 403 Forbidden.
-func (r *Response) Forbidden() {
-	r.WriteHeaderAndSend(http.StatusForbidden)
+func (c *Context) Forbidden() {
+	c.WriteHeaderAndSend(http.StatusForbidden)
 }
 
 // Sets response to HTTP 404 Not Found.
-func (r *Response) NotFound() {
-	r.WriteHeaderAndSend(http.StatusNotFound)
+func (c *Context) NotFound() {
+	c.WriteHeaderAndSend(http.StatusNotFound)
 }
 
-// Sets response to HTTP 500 Internal Server Error.
-func (r *Response) Fail(err interface{}) {
-	r.WriteHeaderAndSend(http.StatusInternalServerError)
+// Sets response to HTTP 500 Internal Server Erroc.
+func (c *Context) Fail(err interface{}) {
+	c.WriteHeaderAndSend(http.StatusInternalServerError)
 }
 
 // Hijack lets the caller take over the connection.
-func (r *Response) Hijack() (net.Conn, *bufio.ReadWriter, error) {
-	if r.size < 0 {
-		r.size = 0
+func (c *Context) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	if c.size < 0 {
+		c.size = 0
 	}
-	return r.ResponseWriter.(http.Hijacker).Hijack()
+	return c.ResponseWriter.(http.Hijacker).Hijack()
 }
 
 // CloseNotify returns a channel that receives a single value
 // when the client connection has gone away.
-func (r *Response) CloseNotify() <-chan bool {
-	return r.ResponseWriter.(http.CloseNotifier).CloseNotify()
+func (c *Context) CloseNotify() <-chan bool {
+	return c.ResponseWriter.(http.CloseNotifier).CloseNotify()
 }
 
 // Flush sends any buffered data to the client.
-func (r *Response) Flush() {
-	r.ResponseWriter.(http.Flusher).Flush()
+func (c *Context) Flush() {
+	c.ResponseWriter.(http.Flusher).Flush()
 }

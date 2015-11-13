@@ -1,9 +1,5 @@
 package hikaru
 
-import (
-	"runtime/debug"
-)
-
 const (
 	LogNo = iota
 	LogCritical
@@ -13,85 +9,65 @@ const (
 	LogDebug
 )
 
-var (
-	appLogger Logger
-	genLogger Logger
-)
-
 type Logger interface {
 	V(int) bool
 	SetLevel(int)
 	Printf(c *Context, level int, format string, args ...interface{})
 }
 
-func SetAppLogger(logger Logger) {
-	appLogger = logger
+type logger struct {
+	app Logger
+	gen Logger
 }
 
-func SetGenLogger(logger Logger) {
-	genLogger = logger
+func (l *logger) genf(c *Context, level int, format string, args ...interface{}) {
+	if l.app != nil && l.app.V(level) {
+		l.app.Printf(c, level, format, args...)
+	}
+}
+
+func (l *logger) appf(c *Context, level int, format string, args ...interface{}) {
+	if l.gen != nil && l.gen.V(level) {
+		l.gen.Printf(c, level, format, args...)
+	}
 }
 
 func (c *Context) debugf(format string, args ...interface{}) {
-	if genLogger != nil {
-		genLogger.Printf(c, LogDebug, format, args...)
-	}
+	c.logger.genf(c, LogDebug, format, args...)
 }
 
 func (c *Context) infof(format string, args ...interface{}) {
-	if genLogger != nil {
-		genLogger.Printf(c, LogInfo, format, args...)
-	}
+	c.logger.genf(c, LogInfo, format, args...)
 }
 
 func (c *Context) warningf(format string, args ...interface{}) {
-	if genLogger != nil {
-		genLogger.Printf(c, LogWarn, format, args...)
-	}
+	c.logger.genf(c, LogWarn, format, args...)
 }
 
 func (c *Context) errorf(format string, args ...interface{}) {
-	if genLogger != nil {
-		genLogger.Printf(c, LogError, format, args...)
-	}
+	c.logger.genf(c, LogError, format, args...)
 }
 
 func (c *Context) criticalf(format string, args ...interface{}) {
-	if genLogger != nil {
-		genLogger.Printf(c, LogCritical, format, args...)
-	}
-}
-
-func (c *Context) logPanic(err interface{}) {
-	c.errorf("%v\n%s", err, string(debug.Stack()))
+	c.logger.genf(c, LogCritical, format, args...)
 }
 
 func (c *Context) Debugf(format string, args ...interface{}) {
-	if appLogger != nil {
-		appLogger.Printf(c, LogDebug, format, args...)
-	}
+	c.logger.appf(c, LogDebug, format, args...)
 }
 
 func (c *Context) Infof(format string, args ...interface{}) {
-	if appLogger != nil {
-		appLogger.Printf(c, LogInfo, format, args...)
-	}
+	c.logger.appf(c, LogInfo, format, args...)
 }
 
 func (c *Context) Warningf(format string, args ...interface{}) {
-	if appLogger != nil {
-		appLogger.Printf(c, LogWarn, format, args...)
-	}
+	c.logger.appf(c, LogWarn, format, args...)
 }
 
 func (c *Context) Errorf(format string, args ...interface{}) {
-	if appLogger != nil {
-		appLogger.Printf(c, LogError, format, args...)
-	}
+	c.logger.appf(c, LogError, format, args...)
 }
 
 func (c *Context) Criticalf(format string, args ...interface{}) {
-	if appLogger != nil {
-		appLogger.Printf(c, LogCritical, format, args...)
-	}
+	c.logger.appf(c, LogCritical, format, args...)
 }
