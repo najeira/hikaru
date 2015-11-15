@@ -40,6 +40,10 @@ func (c *Context) SetCookie(cookie *http.Cookie) {
 	c.Header().Set("Set-Cookie", cookie.String())
 }
 
+func (c *Context) SetContentType(value string) {
+	c.Header().Set("Content-Type", value)
+}
+
 func (c *Context) Status() int {
 	return c.status
 }
@@ -77,10 +81,10 @@ func (c *Context) Write(msg []byte) (int, error) {
 	return n, err
 }
 
-// Writes raw bytes and content type.
-func (c *Context) Raw(body []byte, contentType string) (int, error) {
+// Writes bytes and content type.
+func (c *Context) WriteBody(body []byte, contentType string) (int, error) {
 	if contentType != "" {
-		c.SetHeader("Content-Type", contentType)
+		c.SetContentType(contentType)
 	}
 	return c.Write(body)
 }
@@ -88,16 +92,17 @@ func (c *Context) Raw(body []byte, contentType string) (int, error) {
 // Writes a text string.
 // The content type should be "text/plain; charset=utf-8".
 func (c *Context) Text(body string) (int, error) {
-	c.SetHeader("Content-Type", "text/plain; charset=utf-8")
+	c.SetContentType("text/plain; charset=utf-8")
 	return io.WriteString(c, body)
 }
 
 func (c *Context) Json(value interface{}) error {
-	c.SetHeader("Content-Type", "application/json; charset=utf-8")
-	e := json.NewEncoder(c)
-	if err := e.Encode(value); err != nil {
+	c.SetContentType("application/json; charset=utf-8")
+	body, err := json.Marshal(value)
+	if err != nil {
 		return err
 	}
+	c.Write(body)
 	return nil
 }
 
