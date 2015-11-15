@@ -21,14 +21,14 @@ type logger struct {
 }
 
 func (l *logger) genf(c *Context, level int, format string, args ...interface{}) {
-	if l.app != nil && l.app.V(level) {
-		l.app.Printf(c, level, format, args...)
+	if l.gen != nil && l.gen.V(level) {
+		l.gen.Printf(c, level, format, args...)
 	}
 }
 
 func (l *logger) appf(c *Context, level int, format string, args ...interface{}) {
-	if l.gen != nil && l.gen.V(level) {
-		l.gen.Printf(c, level, format, args...)
+	if l.app != nil && l.app.V(level) {
+		l.app.Printf(c, level, format, args...)
 	}
 }
 
