@@ -22,8 +22,8 @@ func NewModule(prefix string) *Module {
 		prefix: prefix,
 		router: httprouter.New(),
 		logger: &logger{
-			gen: newDefaultLogger(LogWarn),
-			app: newDefaultLogger(LogInfo),
+			gen: NewLogger(LogWarn),
+			app: NewLogger(LogDebug),
 		},
 	}
 }

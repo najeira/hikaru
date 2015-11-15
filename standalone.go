@@ -18,12 +18,12 @@ type defaultLogger struct {
 	level int
 }
 
-func newDefaultLogger(level int) Logger {
+func NewLogger(level int) Logger {
 	return &defaultLogger{level: level}
 }
 
 func (l *defaultLogger) V(level int) bool {
-	return l.level <= level && level > LogNo
+	return l.level >= level && level > LogNo
 }
 
 func (l *defaultLogger) SetLevel(level int) {
