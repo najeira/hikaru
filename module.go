@@ -1,70 +1,79 @@
 package hikaru
 
 import (
-	"github.com/julienschmidt/httprouter"
 	"net/http"
 	"path"
+
+	"github.com/julienschmidt/httprouter"
 )
 
 type HandlerFunc func(*Context)
 
 type Module struct {
-	handlers []HandlerFunc
-	prefix   string
-	parent   *Module
-	app      *Application
-	router   *httprouter.Router
+	parent *Module
+	prefix string
+	router *httprouter.Router
+	logger *logger
 }
 
-func (m *Module) Use(middlewares ...HandlerFunc) {
-	m.handlers = append(m.handlers, middlewares...)
-}
-
-func (m *Module) Module(component string, handlers ...HandlerFunc) *Module {
-	prefix := path.Join(m.prefix, component)
+func NewModule(prefix string) *Module {
 	return &Module{
-		handlers: m.combineHandlers(handlers),
-		parent:   m,
-		prefix:   prefix,
-		router:   m.router,
+		parent: nil,
+		prefix: prefix,
+		router: httprouter.New(),
+		logger: &logger{
+			gen: NewLogger(LogWarn),
+			app: NewLogger(LogDebug),
+		},
 	}
 }
 
-func (m *Module) Handle(method, p string, handlers []HandlerFunc) {
-	var h handlerFuncs = m.combineHandlers(handlers)
-	m.router.Handle(method, path.Join(m.prefix, p), h.handle)
+func (m *Module) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+	m.router.ServeHTTP(w, req)
 }
 
-type handlerFuncs []HandlerFunc
+func (m *Module) Module(component string, handler HandlerFunc) *Module {
+	prefix := path.Join(m.prefix, component)
+	return &Module{
+		parent: m,
+		prefix: prefix,
+		router: m.router,
+		logger: m.logger,
+	}
+}
 
-func (h handlerFuncs) handle(w http.ResponseWriter, r *http.Request, hp httprouter.Params) {
-	c := getContext()
-	defer releaseContext(c)
+func (m *Module) Handle(method, p string, handler HandlerFunc) {
+	h := m.wrapHandlerFunc(handler)
+	m.router.Handle(method, path.Join(m.prefix, p), h)
+}
 
-	c.init(w, r, h)
-	c.addParams(hp)
-	//c.verbosef("hikaru: Request is %v", c.Request)
-	c.execute()
+func (m *Module) wrapHandlerFunc(handler HandlerFunc) httprouter.Handle {
+	return func(w http.ResponseWriter, r *http.Request, hp httprouter.Params) {
+		c := getContext(w, r, hp, m.logger)
+		defer releaseContext(c)
+		//c.verbosef("hikaru: Request is %v", c.Request)
+		handler(c)
+	}
 }
 
 // POST is a shortcut for Module.Handle("POST", p, handle)
-func (m *Module) POST(p string, handlers ...HandlerFunc) {
-	m.Handle("POST", p, handlers)
+func (m *Module) POST(p string, handler HandlerFunc) {
+	m.Handle("POST", p, handler)
 }
 
 // GET is a shortcut for Module.Handle("GET", p, handle)
-func (m *Module) GET(p string, handlers ...HandlerFunc) {
-	m.Handle("GET", p, handlers)
+func (m *Module) GET(p string, handler HandlerFunc) {
+	m.Handle("GET", p, handler)
 }
 
 // OPTIONS is a shortcut for Module.Handle("OPTIONS", p, handle)
-func (m *Module) OPTIONS(p string, handlers ...HandlerFunc) {
-	m.Handle("OPTIONS", p, handlers)
+func (m *Module) OPTIONS(p string, handler HandlerFunc) {
+	m.Handle("OPTIONS", p, handler)
 }
 
 // HEAD is a shortcut for Module.Handle("HEAD", p, handle)
-func (m *Module) HEAD(p string, handlers ...HandlerFunc) {
-	m.Handle("HEAD", p, handlers)
+func (m *Module) HEAD(p string, handler HandlerFunc) {
+	m.Handle("HEAD", p, handler)
 }
 
 func (m *Module) Static(p, root string) {
@@ -83,14 +92,10 @@ func (m *Module) Static(p, root string) {
 	})
 }
 
-func (m *Module) combineHandlers(handlers []HandlerFunc) []HandlerFunc {
-	s := len(m.handlers) + len(handlers)
-	h := make([]HandlerFunc, 0, s)
-	if m.handlers != nil && len(m.handlers) > 0 {
-		h = append(h, m.handlers...)
-	}
-	if handlers != nil && len(handlers) > 0 {
-		h = append(h, handlers...)
-	}
-	return h
+func (m *Module) SetGenLogger(logger Logger) {
+	m.logger.gen = logger
+}
+
+func (m *Module) SetAppLogger(logger Logger) {
+	m.logger.app = logger
 }

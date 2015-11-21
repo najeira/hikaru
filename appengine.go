@@ -4,63 +4,44 @@ package hikaru
 
 import (
 	"appengine"
-	"github.com/najeira/goutils/nlog"
 )
 
-var (
-	applicationLogLevel int
-	generalLogLevel     int
-)
-
-func SetApplicationLogLevel(level int) {
-	applicationLogLevel = level
+var logLevelAppEngineLoggerMap = map[int](func(appengine.Context, string, ...interface{})){
+	LogDebug:    appengine.Context.Debugf,
+	LogInfo:     appengine.Context.Infof,
+	LogWarn:     appengine.Context.Warningf,
+	LogError:    appengine.Context.Errorf,
+	LogCritical: appengine.Context.Criticalf,
 }
 
-func SetGeneralLogLevel(level int) {
-	generalLogLevel = level
+type appengineLogger struct {
+	level int
 }
 
-var appEngineLogLevelPrinterMap = map[int](func(appengine.Context, int, string, ...interface{})){
-	nlog.Critical: appengine.Context.Criticalf,
-	nlog.Error:    appengine.Context.Errorf,
-	nlog.Warn:     appengine.Context.Warningf,
-	nlog.Notice:   appengine.Context.Infof,
-	nlog.Info:     appengine.Context.Infof,
-	nlog.Debug:    appengine.Context.Debugf,
-	nlog.Verbose:  appengine.Context.Debugf,
+func NewLogger(level int) Logger {
+	return &appengineLogger{level: level}
 }
 
-type envContext struct {
-	appengine.Context
+func (l *appengineLogger) V(level int) bool {
+	return l.level >= level && level > LogNo
 }
 
-func (c *envContext) init() {
-	c.Context = appengine.NewContext(c.Request)
+func (l *appengineLogger) SetLevel(level int) {
+	l.level = level
 }
 
-func (c *envContext) release() {
-	c.Context = nil
-}
-
-func (c *envContext) isGenLogEnabled(level int) bool {
-	return level <= generalLogLevel && level != nlog.No
-}
-
-func (c *envContext) appLogf(level int, format string, args ...interface{}) {
-	if level > applicationLogLevel {
-		c.logf(level, format, args...)
+func (l *appengineLogger) Printf(c *Context, level int, format string, args ...interface{}) {
+	if l.V(level) {
+		if f, ok := logLevelAppEngineLoggerMap[level]; ok {
+			f(c.AC(), format, args...)
+		}
 	}
 }
 
-func (c *envContext) genLogf(level int, format string, args ...interface{}) {
-	if level > generalLogLevel {
-		c.logf(level, format, args...)
-	}
+func (c *Context) initEnv() {
+	c.appengineContext = appengine.NewContext(c.Request)
 }
 
-func (c *envContext) logf(level int, format string, args ...interface{}) {
-	f, ok := appEngineLogLevelPrinterMap[level]
-	if ok {
-		f(c.Context, format, args...)
-	}
+func (c *Context) AC() appengine.Context {
+	return c.appengineContext.(appengine.Context)
 }

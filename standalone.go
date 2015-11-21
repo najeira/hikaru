@@ -3,60 +3,43 @@
 package hikaru
 
 import (
-	"github.com/najeira/goutils/nlog"
+	"log"
 )
 
-var (
-	applicationLogger nlog.Logger
-	generalLogger     nlog.Logger
-)
-
-func SetApplicationLogger(logger nlog.Logger) {
-	applicationLogger = logger
+var logLevelNameMap = map[int]string{
+	LogDebug:    "[DEBUG]",
+	LogInfo:     "[INFO] ",
+	LogWarn:     "[WARN] ",
+	LogError:    "[ERROR]",
+	LogCritical: "[CRIT] ",
 }
 
-func SetGeneralLogger(logger nlog.Logger) {
-	generalLogger = logger
+type defaultLogger struct {
+	level int
 }
 
-var nlogLogLevelPrinterMap = map[int](func(nlog.Logger, string, ...interface{})){
-	nlog.Critical: nlog.Logger.Criticalf,
-	nlog.Error:    nlog.Logger.Errorf,
-	nlog.Warn:     nlog.Logger.Warnf,
-	nlog.Notice:   nlog.Logger.Noticef,
-	nlog.Info:     nlog.Logger.Infof,
-	nlog.Debug:    nlog.Logger.Debugf,
-	nlog.Verbose:  nlog.Logger.Verbosef,
+func NewLogger(level int) Logger {
+	return &defaultLogger{level: level}
 }
 
-type envContext struct {
+func (l *defaultLogger) V(level int) bool {
+	return l.level >= level && level > LogNo
 }
 
-func (c *envContext) init() {
-	// nothing for standalone environment
+func (l *defaultLogger) SetLevel(level int) {
+	l.level = level
 }
 
-func (c *envContext) release() {
-	// nothing for standalone environment
-}
-
-func (c *envContext) isGenLogEnabled(level int) bool {
-	return generalLogger != nil && generalLogger.Enable(level)
-}
-
-func (c *envContext) appLogf(level int, format string, args ...interface{}) {
-	c.logf(applicationLogger, level, format, args...)
-}
-
-func (c *envContext) genLogf(level int, format string, args ...interface{}) {
-	c.logf(generalLogger, level, format, args...)
-}
-
-func (c *envContext) logf(logger nlog.Logger, level int, format string, args ...interface{}) {
-	if logger != nil {
-		f, ok := nlogLogLevelPrinterMap[level]
-		if ok {
-			f(logger, format, args...)
+func (l *defaultLogger) Printf(c *Context, level int, format string, args ...interface{}) {
+	if l.V(level) {
+		if name, ok := logLevelNameMap[level]; ok {
+			log.Printf(name+format, args...)
+		} else {
+			log.Printf(format, args...)
 		}
 	}
+}
+
+func (c *Context) initEnv() {
+	// nothing for standalone environment
 }
