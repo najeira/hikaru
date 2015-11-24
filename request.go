@@ -35,17 +35,27 @@ func (c *Context) IsUpload() bool {
 	return strings.Contains(c.Request.Header.Get("Content-Type"), "multipart/form-data")
 }
 
-func (c *Context) RemoteAddr() string {
-	ips := strings.Split(c.Request.RemoteAddr, ":")
-	if ips != nil && len(ips) > 0 && ips[0] != "" && ips[0] != "[" {
-		return ips[0]
+func getAddressWithoutPort(addr string) string {
+	if index := strings.LastIndexByte(addr, ':'); index >= 0 {
+		addr = addr[0:index]
 	}
-	return ""
+	return strings.TrimSpace(addr)
+}
+
+func (c *Context) RemoteAddr() string {
+	return strings.TrimSpace(c.Request.RemoteAddr)
+}
+
+func (c *Context) ClientAddr() string {
+	ip := c.ForwardedAddr()
+	if len(ip) > 0 {
+		return ip
+	}
+	return c.RemoteAddr()
 }
 
 func (c *Context) ForwardedAddr() string {
-	addrs := c.ForwardedAddrs()
-	if addrs != nil && len(addrs) > 0 {
+	if addrs := c.ForwardedAddrs(); len(addrs) > 0 {
 		return addrs[0]
 	}
 	return ""
@@ -55,13 +65,12 @@ func (c *Context) ForwardedAddrs() []string {
 	rets := make([]string, 0)
 	names := []string{"X-Forwarded-For", "X-Real-IP"}
 	for _, name := range names {
-		if ips := c.Request.Header.Get(name); ips != "" {
-			arr := strings.Split(ips, ",")
-			if arr != nil {
+		if ips := c.Request.Header.Get(name); len(ips) > 0 {
+			if arr := strings.Split(ips, ","); len(arr) > 0 {
 				for _, ip := range arr {
-					parts := strings.Split(ip, ":")
-					if parts != nil && len(parts) > 0 && parts[0] != "" {
-						rets = append(rets, parts[0])
+					ip = strings.TrimSpace(ip)
+					if len(ip) > 0 {
+						rets = append(rets, ip)
 					}
 				}
 			}

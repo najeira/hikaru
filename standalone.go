@@ -30,6 +30,16 @@ func (l *defaultLogger) SetLevel(level int) {
 	l.level = level
 }
 
+func (l *defaultLogger) Print(c *Context, level int, arg interface{}) {
+	if l.V(level) {
+		if name, ok := logLevelNameMap[level]; ok {
+			log.Printf(name+"%v", arg)
+		} else {
+			log.Printf("%v", arg)
+		}
+	}
+}
+
 func (l *defaultLogger) Printf(c *Context, level int, format string, args ...interface{}) {
 	if l.V(level) {
 		if name, ok := logLevelNameMap[level]; ok {

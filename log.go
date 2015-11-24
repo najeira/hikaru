@@ -7,6 +7,7 @@ const (
 	LogWarn
 	LogInfo
 	LogDebug
+	LogTrace
 )
 
 type Logger interface {
@@ -26,9 +27,21 @@ func (l *logger) genf(c *Context, level int, format string, args ...interface{})
 	}
 }
 
+func (l *logger) genv(c *Context, level int, value interface{}) {
+	if l.gen != nil && l.gen.V(level) {
+		l.gen.Printf(c, level, "%v", value)
+	}
+}
+
 func (l *logger) appf(c *Context, level int, format string, args ...interface{}) {
 	if l.app != nil && l.app.V(level) {
 		l.app.Printf(c, level, format, args...)
+	}
+}
+
+func (l *logger) appv(c *Context, level int, value interface{}) {
+	if l.app != nil && l.app.V(level) {
+		l.app.Printf(c, level, "%v", value)
 	}
 }
 

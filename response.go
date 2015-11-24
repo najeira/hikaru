@@ -134,7 +134,7 @@ func (c *Context) NotFound() {
 }
 
 // Sets response to HTTP 500 Internal Server Erroc.
-func (c *Context) Fail(err interface{}) {
+func (c *Context) Fail() {
 	c.WriteHeaderAndSend(http.StatusInternalServerError)
 }
 

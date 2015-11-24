@@ -77,12 +77,13 @@ func (m *Module) HEAD(p string, handler HandlerFunc) {
 }
 
 func (m *Module) Static(p, root string) {
-	p = path.Join(p, "/*filepath")
+	p = path.Join(p, "*filepath")
 	fileServer := http.FileServer(http.Dir(root))
 	m.GET(p, func(c *Context) {
 		fp, err := c.TryString("filepath")
 		if err != nil {
-			c.Fail(err)
+			c.Errorf(err.Error())
+			c.Fail()
 		} else {
 			original := c.Request.URL.Path
 			c.Request.URL.Path = fp
