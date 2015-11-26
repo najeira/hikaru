@@ -35,13 +35,6 @@ func (c *Context) IsUpload() bool {
 	return strings.Contains(c.Request.Header.Get("Content-Type"), "multipart/form-data")
 }
 
-func getAddressWithoutPort(addr string) string {
-	if index := strings.LastIndexByte(addr, ':'); index >= 0 {
-		addr = addr[0:index]
-	}
-	return strings.TrimSpace(addr)
-}
-
 func (c *Context) RemoteAddr() string {
 	return strings.TrimSpace(c.Request.RemoteAddr)
 }
