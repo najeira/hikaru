@@ -70,7 +70,9 @@ func (c *Context) WriteHeaderAndSend(code int) {
 func (c *Context) writeHeaderIfNotSent() {
 	if !c.Written() {
 		c.size = 0
-		c.ResponseWriter.WriteHeader(c.status)
+		if c.status > 0 {
+			c.ResponseWriter.WriteHeader(c.status)
+		}
 	}
 }
 
