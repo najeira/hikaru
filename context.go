@@ -17,9 +17,6 @@ type Context struct {
 
 	// response
 	http.ResponseWriter
-	http.Hijacker
-	http.Flusher
-	http.CloseNotifier
 	status int
 	size   int
 
