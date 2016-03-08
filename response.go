@@ -100,12 +100,8 @@ func (c *Context) Text(body string) (int, error) {
 
 func (c *Context) Json(value interface{}) error {
 	c.SetContentType("application/json; charset=utf-8")
-	body, err := json.Marshal(value)
-	if err != nil {
-		return err
-	}
-	c.Write(body)
-	return nil
+	enc := json.NewEncoder(c)
+	return enc.Encode(value)
 }
 
 // Sets response to HTTP 3xx.
