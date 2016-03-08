@@ -2,51 +2,62 @@ package hikaru
 
 import (
 	"mime/multipart"
+	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
 )
 
-// ReqHeader gets a request header.
-func (c *Context) ReqHeader(key string) string {
+// RequestHeader gets a request header.
+func (c *Context) RequestHeader(key string) string {
 	return c.Request.Header.Get(key)
 }
 
-// Returns whether the request method is POST or not.
+// IsPost returns true if the request method is POST.
 func (c *Context) IsPost() bool {
-	return strings.ToUpper(c.Request.Method) == "POST"
+	m := strings.ToUpper(c.Request.Method)
+	return m == "POST"
 }
 
-// Returns whether the request method is GET or not.
+// IsGet returns true if the request method is GET.
 func (c *Context) IsGet() bool {
-	return strings.ToUpper(c.Request.Method) == "GET"
+	m := strings.ToUpper(c.Request.Method)
+	return m == "GET"
 }
 
+// IsAjax returns true if the request is XMLHttpRequest.
 func (c *Context) IsAjax() bool {
-	return c.Request.Header.Get("X-Requested-With") == "XMLHttpRequest"
+	h := c.Request.Header.Get("X-Requested-With")
+	return h == "XMLHttpRequest"
 }
 
+// IsSecure returns true if the request is scure.
 func (c *Context) IsSecure() bool {
 	// TODO: HTTP_X_FORWARDED_SSL, HTTP_X_FORWARDED_SCHEME, HTTP_X_FORWARDED_PROTO
 	return c.Request.URL.Scheme == "https"
 }
 
+// IsUpload returns true if the request has files.
 func (c *Context) IsUpload() bool {
-	return strings.Contains(c.Request.Header.Get("Content-Type"), "multipart/form-data")
+	ct := c.Request.Header.Get("Content-Type")
+	return strings.Contains(ct, "multipart/form-data")
 }
 
+// RemoteAddr returns the address of the request.
 func (c *Context) RemoteAddr() string {
 	return strings.TrimSpace(c.Request.RemoteAddr)
 }
 
+// ClientAddr returns the address of the client.
 func (c *Context) ClientAddr() string {
-	ip := c.ForwardedAddr()
-	if len(ip) > 0 {
+	if ip := c.ForwardedAddr(); len(ip) > 0 {
 		return ip
 	}
 	return c.RemoteAddr()
 }
 
+// ForwardedAddr returns the address that is in
+// X-Real-IP and X-Forwarded-For headers of the request.
 func (c *Context) ForwardedAddr() string {
 	if addrs := c.ForwardedAddrs(); len(addrs) > 0 {
 		return addrs[0]
@@ -54,15 +65,16 @@ func (c *Context) ForwardedAddr() string {
 	return ""
 }
 
+// ForwardedAddrs returns the addresses that are in
+// X-Real-IP and X-Forwarded-For headers of the request.
 func (c *Context) ForwardedAddrs() []string {
 	rets := make([]string, 0)
-	names := []string{"X-Forwarded-For", "X-Real-IP"}
+	names := []string{"X-Real-IP", "X-Forwarded-For"}
 	for _, name := range names {
 		if ips := c.Request.Header.Get(name); len(ips) > 0 {
 			if arr := strings.Split(ips, ","); len(arr) > 0 {
 				for _, ip := range arr {
-					ip = strings.TrimSpace(ip)
-					if len(ip) > 0 {
+					if ip = strings.TrimSpace(ip); len(ip) > 0 {
 						rets = append(rets, ip)
 					}
 				}
@@ -72,60 +84,62 @@ func (c *Context) ForwardedAddrs() []string {
 	return rets
 }
 
-func (c *Context) QueryValues() url.Values {
+// Query returns the URL-encoded query values.
+func (c *Context) Query() url.Values {
 	if c.query == nil {
 		c.query = c.Request.URL.Query()
 	}
 	return c.query
 }
 
-func (c *Context) Query(key string) string {
-	v, _ := c.getQuery(key)
-	return v
-}
-
-func (c *Context) getQuery(key string) (string, bool) {
-	if values := c.QueryValues()[key]; len(values) > 0 {
+// queryValue returns the first value for the named component
+// of the query and the value was found or not.
+func (c *Context) queryValue(key string) (string, bool) {
+	if values := c.Query()[key]; len(values) > 0 {
 		return values[0], true
 	}
 	return "", false
 }
 
-func (c *Context) Form(key string) string {
-	v, _ := c.getForm(key)
-	return v
-}
-
-func (c *Context) getForm(key string) (string, bool) {
-	req := c.Request
-	req.ParseMultipartForm(32 << 20) // 32 MB
-	if values := req.PostForm[key]; len(values) > 0 {
-		return values[0], true
+// postFormValue returns the first value for the named component
+// of the POST or PUT request body and the value was found or not.
+// URL query parameters are ignored.
+func (c *Context) postFormValue(key string) (string, bool) {
+	if c.Request.PostForm == nil {
+		c.ParseMultipartForm(32 << 20) // 32 MB
 	}
-	if req.MultipartForm != nil && req.MultipartForm.File != nil {
-		if values := req.MultipartForm.Value[key]; len(values) > 0 {
-			return values[0], true
-		}
+	if values := c.PostForm[key]; len(values) > 0 {
+		return values[0], true
 	}
 	return "", false
 }
 
-func (c *Context) File(key string) (multipart.File, *multipart.FileHeader, error) {
-	req := c.Request
-	req.ParseMultipartForm(32 << 20) // 32 MB
-	return req.FormFile(key)
+// FormFile returns the first file for the provided form key.
+func (c *Context) FormFile(key string) (multipart.File, *multipart.FileHeader, error) {
+	f, h, err := c.Request.FormFile(key)
+	if err == http.ErrMissingFile {
+		err = nil
+	}
+	return f, h, err
 }
 
-// Get gets the first value associated with the given key.
+// Has returns true if the key is in the request.
+func (c *Context) Has(key string) bool {
+	_, ok := c.getString(key)
+	return ok
+}
+
+// String gets the first value associated with the given key.
 // If there are no values associated with the key,
-// Get returns the failover string.
+// String returns the failover string.
 // To access multiple values, use the map directly.
-func (c *Context) String(key string, failover string) string {
-	ret, err := c.TryString(key)
-	if err != nil {
-		return failover
+func (c *Context) String(key string, args ...string) string {
+	if ret, err := c.TryString(key); err == nil {
+		return ret
+	} else if len(args) > 0 {
+		return args[0]
 	}
-	return ret
+	return ""
 }
 
 func (c *Context) getString(key string) (string, bool) {
@@ -134,32 +148,30 @@ func (c *Context) getString(key string) (string, bool) {
 			return s, true
 		}
 	}
-	if v, ok := c.getQuery(key); ok {
+	if v, ok := c.queryValue(key); ok {
 		return v, true
-	}
-	if v, ok := c.getForm(key); ok {
+	} else if v, ok := c.postFormValue(key); ok {
 		return v, true
 	}
 	return "", false
 }
 
-// Get gets the first value associated with the given key.
-// If there are no values associated with the key,
-// Get returns the ErrKeyNotExist.
+// TryString gets the first value associated with the given key.
+// If there are no values associated with the key, returns the ErrKeyNotExist.
 func (c *Context) TryString(key string) (string, error) {
-	s, ok := c.getString(key)
-	if ok {
+	if s, ok := c.getString(key); ok {
 		return s, nil
 	}
 	return "", ErrKeyNotExist
 }
 
-func (c *Context) Int(key string, failover int64) int64 {
-	ret, err := c.TryInt(key)
-	if err != nil {
-		return failover
+func (c *Context) Int(key string, args ...int64) int64 {
+	if ret, err := c.TryInt(key); err == nil {
+		return ret
+	} else if len(args) > 0 {
+		return args[0]
 	}
-	return ret
+	return 0
 }
 
 func (c *Context) TryInt(key string) (int64, error) {
@@ -170,12 +182,13 @@ func (c *Context) TryInt(key string) (int64, error) {
 	return strconv.ParseInt(s, 10, 64)
 }
 
-func (c *Context) Float(key string, failover float64) float64 {
-	ret, err := c.TryFloat(key)
-	if err != nil {
-		return failover
+func (c *Context) Float(key string, args ...float64) float64 {
+	if ret, err := c.TryFloat(key); err == nil {
+		return ret
+	} else if len(args) > 0 {
+		return args[0]
 	}
-	return ret
+	return 0
 }
 
 func (c *Context) TryFloat(key string) (float64, error) {
@@ -186,12 +199,13 @@ func (c *Context) TryFloat(key string) (float64, error) {
 	return strconv.ParseFloat(s, 64)
 }
 
-func (c *Context) Bool(key string, failover bool) bool {
-	ret, err := c.TryBool(key)
-	if err != nil {
-		return failover
+func (c *Context) Bool(key string, args ...bool) bool {
+	if ret, err := c.TryBool(key); err == nil {
+		return ret
+	} else if len(args) > 0 {
+		return args[0]
 	}
-	return ret
+	return false
 }
 
 func (c *Context) TryBool(key string) (bool, error) {
