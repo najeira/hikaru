@@ -12,7 +12,6 @@ const (
 
 type Logger interface {
 	V(int) bool
-	SetLevel(int)
 	Printf(c *Context, level int, format string, args ...interface{})
 }
 
@@ -45,6 +44,10 @@ func (l *logger) appv(c *Context, level int, value interface{}) {
 	}
 }
 
+func (c *Context) tracef(format string, args ...interface{}) {
+	c.logger.genf(c, LogTrace, format, args...)
+}
+
 func (c *Context) debugf(format string, args ...interface{}) {
 	c.logger.genf(c, LogDebug, format, args...)
 }
@@ -63,6 +66,10 @@ func (c *Context) errorf(format string, args ...interface{}) {
 
 func (c *Context) criticalf(format string, args ...interface{}) {
 	c.logger.genf(c, LogCritical, format, args...)
+}
+
+func (c *Context) Tracef(format string, args ...interface{}) {
+	c.logger.appf(c, LogTrace, format, args...)
 }
 
 func (c *Context) Debugf(format string, args ...interface{}) {

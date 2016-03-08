@@ -7,6 +7,7 @@ import (
 )
 
 var logLevelNameMap = map[int]string{
+	LogTrace:    "[TRACE]",
 	LogDebug:    "[DEBUG]",
 	LogInfo:     "[INFO] ",
 	LogWarn:     "[WARN] ",
@@ -24,20 +25,6 @@ func NewLogger(level int) Logger {
 
 func (l *defaultLogger) V(level int) bool {
 	return l.level >= level && level > LogNo
-}
-
-func (l *defaultLogger) SetLevel(level int) {
-	l.level = level
-}
-
-func (l *defaultLogger) Print(c *Context, level int, arg interface{}) {
-	if l.V(level) {
-		if name, ok := logLevelNameMap[level]; ok {
-			log.Printf(name+"%v", arg)
-		} else {
-			log.Printf("%v", arg)
-		}
-	}
 }
 
 func (l *defaultLogger) Printf(c *Context, level int, format string, args ...interface{}) {

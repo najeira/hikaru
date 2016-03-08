@@ -7,6 +7,7 @@ import (
 )
 
 var logLevelAppEngineLoggerMap = map[int](func(appengine.Context, string, ...interface{})){
+	LogTrace:    appengine.Context.Debugf,
 	LogDebug:    appengine.Context.Debugf,
 	LogInfo:     appengine.Context.Infof,
 	LogWarn:     appengine.Context.Warningf,
@@ -24,10 +25,6 @@ func NewLogger(level int) Logger {
 
 func (l *appengineLogger) V(level int) bool {
 	return l.level >= level && level > LogNo
-}
-
-func (l *appengineLogger) SetLevel(level int) {
-	l.level = level
 }
 
 func (l *appengineLogger) Printf(c *Context, level int, format string, args ...interface{}) {
