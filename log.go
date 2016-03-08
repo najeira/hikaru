@@ -10,84 +10,85 @@ const (
 	LogTrace
 )
 
+var (
+	applicationLogger Logger
+	generalLogger     Logger
+)
+
 type Logger interface {
 	V(int) bool
 	Printf(c *Context, level int, format string, args ...interface{})
 }
 
-type logger struct {
-	app Logger
-	gen Logger
+func init() {
+	SetLogger(NewLogger(LogInfo))
+	SetGeneralLogger(NewLogger(LogWarn))
 }
 
-func (l *logger) genf(c *Context, level int, format string, args ...interface{}) {
-	if l.gen != nil && l.gen.V(level) {
-		l.gen.Printf(c, level, format, args...)
+func SetLogger(logger Logger) {
+	applicationLogger = logger
+}
+
+func SetGeneralLogger(logger Logger) {
+	generalLogger = logger
+}
+
+func logGenf(c *Context, level int, format string, args ...interface{}) {
+	if generalLogger != nil && generalLogger.V(level) {
+		generalLogger.Printf(c, level, format, args...)
 	}
 }
 
-func (l *logger) genv(c *Context, level int, value interface{}) {
-	if l.gen != nil && l.gen.V(level) {
-		l.gen.Printf(c, level, "%v", value)
-	}
-}
-
-func (l *logger) appf(c *Context, level int, format string, args ...interface{}) {
-	if l.app != nil && l.app.V(level) {
-		l.app.Printf(c, level, format, args...)
-	}
-}
-
-func (l *logger) appv(c *Context, level int, value interface{}) {
-	if l.app != nil && l.app.V(level) {
-		l.app.Printf(c, level, "%v", value)
+func logAppf(c *Context, level int, format string, args ...interface{}) {
+	if applicationLogger != nil && applicationLogger.V(level) {
+		applicationLogger.Printf(c, level, format, args...)
 	}
 }
 
 func (c *Context) tracef(format string, args ...interface{}) {
-	c.logger.genf(c, LogTrace, format, args...)
+	logGenf(c, LogTrace, format, args...)
 }
 
 func (c *Context) debugf(format string, args ...interface{}) {
-	c.logger.genf(c, LogDebug, format, args...)
+	logGenf(c, LogDebug, format, args...)
 }
 
 func (c *Context) infof(format string, args ...interface{}) {
-	c.logger.genf(c, LogInfo, format, args...)
+	logGenf(c, LogInfo, format, args...)
 }
 
 func (c *Context) warningf(format string, args ...interface{}) {
-	c.logger.genf(c, LogWarn, format, args...)
+	logGenf(c, LogWarn, format, args...)
 }
 
 func (c *Context) errorf(format string, args ...interface{}) {
-	c.logger.genf(c, LogError, format, args...)
+	logGenf(c, LogError, format, args...)
 }
 
 func (c *Context) criticalf(format string, args ...interface{}) {
-	c.logger.genf(c, LogCritical, format, args...)
+	logGenf(c, LogCritical, format, args...)
 }
 
 func (c *Context) Tracef(format string, args ...interface{}) {
-	c.logger.appf(c, LogTrace, format, args...)
+	logAppf(c, LogTrace, format, args...)
 }
 
 func (c *Context) Debugf(format string, args ...interface{}) {
-	c.logger.appf(c, LogDebug, format, args...)
+	logAppf(c, LogDebug, format, args...)
 }
 
 func (c *Context) Infof(format string, args ...interface{}) {
-	c.logger.appf(c, LogInfo, format, args...)
+	logAppf(c, LogInfo, format, args...)
 }
 
 func (c *Context) Warningf(format string, args ...interface{}) {
-	c.logger.appf(c, LogWarn, format, args...)
+	logAppf(c, LogWarn, format, args...)
 }
 
 func (c *Context) Errorf(format string, args ...interface{}) {
-	c.logger.appf(c, LogError, format, args...)
+	logAppf(c, LogError, format, args...)
 }
 
 func (c *Context) Criticalf(format string, args ...interface{}) {
-	c.logger.appf(c, LogCritical, format, args...)
+	logAppf(c, LogCritical, format, args...)
 }

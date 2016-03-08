@@ -9,22 +9,21 @@ import (
 
 type HandlerFunc func(*Context)
 
+type Middleware func(HandlerFunc) HandlerFunc
+
 type Module struct {
-	parent *Module
-	prefix string
-	router *httprouter.Router
-	logger *logger
+	parent     *Module
+	prefix     string
+	router     *httprouter.Router
+	middleware Middleware
 }
 
 func NewModule(prefix string) *Module {
 	return &Module{
-		parent: nil,
-		prefix: prefix,
-		router: httprouter.New(),
-		logger: &logger{
-			gen: NewLogger(LogWarn),
-			app: NewLogger(LogDebug),
-		},
+		parent:     nil,
+		prefix:     prefix,
+		router:     httprouter.New(),
+		middleware: nil,
 	}
 }
 
@@ -32,26 +31,29 @@ func (m *Module) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	m.router.ServeHTTP(w, req)
 }
 
-func (m *Module) Module(component string, handler HandlerFunc) *Module {
+func (m *Module) Module(component string, middleware Middleware) *Module {
 	prefix := path.Join(m.prefix, component)
 	return &Module{
-		parent: m,
-		prefix: prefix,
-		router: m.router,
-		logger: m.logger,
+		parent:     m,
+		prefix:     prefix,
+		router:     m.router,
+		middleware: middleware,
 	}
 }
 
 func (m *Module) Handle(method, p string, handler HandlerFunc) {
+	if m.middleware != nil {
+		handler = m.middleware(handler)
+	}
 	h := m.wrapHandlerFunc(handler)
 	m.router.Handle(method, path.Join(m.prefix, p), h)
 }
 
 func (m *Module) wrapHandlerFunc(handler HandlerFunc) httprouter.Handle {
 	return func(w http.ResponseWriter, r *http.Request, hp httprouter.Params) {
-		c := getContext(w, r, hp, m.logger)
+		c := getContext(w, r, hp)
 		defer releaseContext(c)
-		//c.verbosef("hikaru: Request is %v", c.Request)
+		c.tracef("hikaru: Request is %v", c.Request)
 		handler(c)
 	}
 }
@@ -91,12 +93,4 @@ func (m *Module) Static(p, root string) {
 			c.Request.URL.Path = original
 		}
 	})
-}
-
-func (m *Module) SetGenLogger(logger Logger) {
-	m.logger.gen = logger
-}
-
-func (m *Module) SetAppLogger(logger Logger) {
-	m.logger.app = logger
 }

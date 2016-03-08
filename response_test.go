@@ -13,7 +13,7 @@ func responseObjects() (*httptest.ResponseRecorder, *http.Request, *Context, err
 		return wr, req, nil, err
 	}
 	res := &Context{}
-	res.init(wr, req, nil, nil)
+	res.init(wr, req, nil)
 	return wr, req, res, err
 }
 
