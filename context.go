@@ -25,9 +25,6 @@ type Context struct {
 
 	// logging
 	logger *logger
-
-	// appengine
-	appengineContext interface{}
 }
 
 var (
@@ -44,7 +41,6 @@ func getContext(w http.ResponseWriter, r *http.Request, params httprouter.Params
 		c = &Context{}
 	}
 	c.init(w, r, params, l)
-	c.initEnv()
 	return c
 }
 
@@ -62,5 +58,4 @@ func (c *Context) init(w http.ResponseWriter, r *http.Request, params httprouter
 	c.status = http.StatusOK
 	c.size = -1
 	c.logger = l
-	c.appengineContext = nil
 }

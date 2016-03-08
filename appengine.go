@@ -33,15 +33,7 @@ func (l *appengineLogger) SetLevel(level int) {
 func (l *appengineLogger) Printf(c *Context, level int, format string, args ...interface{}) {
 	if l.V(level) {
 		if f, ok := logLevelAppEngineLoggerMap[level]; ok {
-			f(c.AC(), format, args...)
+			f(appengine.NewContext(c.Request), format, args...)
 		}
 	}
-}
-
-func (c *Context) initEnv() {
-	c.appengineContext = appengine.NewContext(c.Request)
-}
-
-func (c *Context) AC() appengine.Context {
-	return c.appengineContext.(appengine.Context)
 }

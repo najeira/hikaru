@@ -49,7 +49,3 @@ func (l *defaultLogger) Printf(c *Context, level int, format string, args ...int
 		}
 	}
 }
-
-func (c *Context) initEnv() {
-	// nothing for standalone environment
-}
